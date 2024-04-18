@@ -1,0 +1,24 @@
+[package]
+name = "dddioxus"
+version = "0.1.0"
+authors = ["Raytwo <raytwost@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.5", features = ["desktop", "router"] }
+manganis = "0.2.2"
+
+# Async
+tokio = "1.37.0"
+tokio-tungstenite = "0.21.0"
+futures-util = "0.3.30"
+
+# Debug
+log = "0.4.19"
+dioxus-logger = "0.4.1"
+
+# Parsing
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.115"
