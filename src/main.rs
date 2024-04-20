@@ -20,10 +20,6 @@ mod protocol;
 mod components;
 mod hooks;
 
-// Urls are relative to your Cargo.toml file
-// const _TAILWIND_URL: &str = manganis::mg!(file("assets/main.css"));
-
-
 #[derive(Clone, Routable, Debug, PartialEq)]
 enum Route {
     #[route("/")]
@@ -44,7 +40,9 @@ fn main() {
 
     let config = Config::new()
         .with_menu(menu)
-        .with_window(window);
+        .with_window(window)
+        .with_custom_head(r#"<script src="https://cdn.tailwindcss.com"></script>"#.to_string());
+
 
     LaunchBuilder::new()
         .with_cfg(config)
@@ -66,9 +64,33 @@ fn App() -> Element {
     // });
 
     rsx! {
-        WebSocketProvider {
-            MessageContextProvider {
-                Message { }
+        Testing {
+
+        }
+    }
+}
+
+#[component]
+fn Testing() -> Element {
+    rsx! {
+        section {
+            class: "grid place-items-center bg-emerald-800 p-16 min-h-screen",
+            label {
+                input {
+                    class:"peer/showLabel absolute scale-0",
+                    r#type:"checkbox",
+                }
+                span {
+                    class:"block max-h-14 max-w-xs overflow-hidden rounded-lg bg-emerald-100 px-4 py-0 text-cyan-800 shadow-lg transition-all duration-300 peer-checked/showLabel:max-h-52",
+                    h3 {
+                        class:"flex h-14 cursor-pointer items-center font-bold",
+                        "Expand & Collapse Me",
+                    }
+                    p {
+                        class:"mb-2",
+                        "You've crafted a sleek collapsible panel using Tailwind CSS without the need for JavaScript. Impressive! 😎",
+                    }
+                }
             }
         }
     }

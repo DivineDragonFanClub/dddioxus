@@ -8,7 +8,6 @@ edition = "2021"
 
 [dependencies]
 dioxus = { version = "0.5", features = ["desktop", "router"] }
-manganis = "0.2.2"
 
 # Async
 tokio = "1.37.0"
