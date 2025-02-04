@@ -64,7 +64,7 @@ fn App() -> Element {
     // });
 
     rsx! {
-        Testing {
+        Router::<Route> {
 
         }
     }
@@ -152,14 +152,12 @@ fn Message() -> Element {
 #[component]
 fn Home() -> Element {
     rsx! {
-        Link {
-            to: Route::Blog {
-                id: 69
-            },
-            "Go to blog"
-        }
-        div {
-            div { Message { } }
+        WebSocketProvider {
+            MessageContextProvider {
+                div {
+                    div { Message { } }
+                }
+            }
         }
     }
 }
