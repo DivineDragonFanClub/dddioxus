@@ -1,9 +1,7 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use dioxus::dioxus_core::use_hook;
-use dioxus::hooks::use_context_provider;
-use dioxus::prelude::{provide_context, schedule_update, Signal, use_signal};
+use dioxus::prelude::{provide_context, Signal, use_signal};
 
 use futures_util::{SinkExt, StreamExt};
 use futures_util::stream::{SplitSink, SplitStream};
@@ -21,139 +19,88 @@ pub enum ConnectionState {
 }
 
 impl ConnectionState {
-    async fn connect(&mut self, url: impl AsRef<str>) -> std::io::Result<()> {
-        match self {
-            ConnectionState::Closed => {
-                match connect_async(url.as_ref()).await {
-                    Ok((ws, _)) => {
-                        let (sender, reader) = ws.split();
-
-                        *self = ConnectionState::Connected {
-                            sender: Arc::new(RwLock::new(sender)),
-                            reader: Arc::new(RwLock::new(reader)),
-                        };
-
-                        println!("Connected");
-
-                        Ok(())
-                    }
-                    Err(_) => Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable)),
-                }
-            }
-            ConnectionState::Connected { sender, .. } => {
-                self.close().await;
-                Ok(())
-            }
-        }
-    }
-
-    async fn send(&mut self, msg: Message) -> Option<()> {
-        match self {
-            ConnectionState::Closed => {
-                // Probably return a error here to signal the websocket isn't open
-                None
-            }
-            ConnectionState::Connected { sender, .. } => {
-                // TODO: Change the state to Closed on error
-                let result = sender.write().unwrap().send(msg).await;
-
-                if let Err(err) = result {
-                    *self = ConnectionState::Closed;
-                    None
-                } else {
-                    Some(())
-                }
-            }
-        }
-    }
-
-    async fn recv(&self) -> Option<Result<Message, Error>> {
-        match self {
-            ConnectionState::Closed => {
-                // Probably return a error here to signal the websocket isn't open
-                None
-            }
-            ConnectionState::Connected { reader, .. } => {
-                reader.write().unwrap().next().await
-            }
-        }
-    }
-
     fn is_open(&self) -> bool {
-        match self {
-            ConnectionState::Closed => false,
-            ConnectionState::Connected { .. } => true
-        }
+        matches!(self, ConnectionState::Connected { .. })
     }
+}
 
-    async fn close(&mut self) {
-        match self {
-            ConnectionState::Closed => {}
-            ConnectionState::Connected { sender, .. } => {
-                sender.write().unwrap().send(Message::Close(None)).await;
-                *self = ConnectionState::Closed;
+/// Connect to the debug server. Retries with short timeouts because Ryujinx sucks ASS
+/// and does not properly respect the opt arguments.
+pub async fn do_connect(url: &str) -> std::io::Result<ConnectionState> {
+    for attempt in 1..=10 {
+        match tokio::time::timeout(Duration::from_secs(2), connect_async(url)).await {
+            Ok(Ok((ws, _))) => {
+                println!("Connected to {url} (attempt {attempt})");
+                let (sender, reader) = ws.split();
+                return Ok(ConnectionState::Connected {
+                    sender: Arc::new(RwLock::new(sender)),
+                    reader: Arc::new(RwLock::new(reader)),
+                });
+            }
+            Ok(Err(e)) => {
+                println!("Connection failed: {e}");
+                return Err(std::io::Error::other(e));
+            }
+            Err(_) => {
+                
             }
         }
     }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "Could not reach the debug server. Is the game running?",
+    ))
+}
+
+pub async fn do_send(
+    sender: &Arc<RwLock<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
+    msg: Message,
+) -> bool {
+    sender.write().unwrap().send(msg).await.is_ok()
+}
+
+pub async fn do_recv(
+    reader: &Arc<RwLock<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
+) -> Option<Result<Message, Error>> {
+    reader.write().unwrap().next().await
 }
 
 #[derive(Clone)]
 pub struct DebugConnection {
-    state: ConnectionState,
-    update: Arc<dyn Fn()>,
-    is_open: bool,
+    pub state: ConnectionState,
+    pub is_open: bool,
 }
 
-// impl DebugConnection {
-//     pub fn new() -> Self {
-//         Self {
-//             state: ConnectionState::Closed,
-//         }
-//     }
-// }
-
 impl DebugConnection {
-    pub async fn connect(&mut self, url: &str) -> std::io::Result<()> {
-        let result = self.state.connect(url).await;
-
-        self.is_open = self.state.is_open();
-
-        result
-    }
-
     pub fn is_open(&self) -> bool {
         self.state.is_open()
     }
 
-    pub async fn recv(&self) -> Option<Result<Message, Error>> {
-        self.state.recv().await
+    pub fn get_sender(&self) -> Option<Arc<RwLock<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>> {
+        match &self.state {
+            ConnectionState::Connected { sender, .. } => Some(sender.clone()),
+            _ => None,
+        }
     }
 
-    pub async fn send(&mut self, msg: Message) -> Option<()> {
-        self.state.send(msg).await
-    }
-
-    pub async fn close(&mut self) {
-        self.state.close().await
+    pub fn get_reader(&self) -> Option<Arc<RwLock<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>> {
+        match &self.state {
+            ConnectionState::Connected { reader, .. } => Some(reader.clone()),
+            _ => None,
+        }
     }
 }
 
 pub fn use_ws_provider() -> Signal<DebugConnection> {
-    let update = schedule_update();
-
-
     let signal = use_signal(|| {
-        println!("Creating signal");
-
         DebugConnection {
-        state: ConnectionState::Closed,
-        update,
-            is_open: false
-    }});
+            state: ConnectionState::Closed,
+            is_open: false,
+        }
+    });
 
     use_hook(|| {
-        println!("provide_context");
-
         provide_context(signal)
     })
 }

@@ -1,54 +1,66 @@
-use std::sync::{Arc, RwLock};
 use dioxus::prelude::*;
-use futures_util::stream::SplitSink;
-use crate::hooks::DebugConnection;
+use crate::hooks::websocket::do_connect;
 
 #[derive(PartialEq, Clone, Props)]
 pub struct WebsocketProviderProps {
     children: Element,
 }
 
-
-
 #[component]
 pub fn WebSocketProvider(props: WebsocketProviderProps) -> Element {
     let mut url = use_signal(|| "ws://127.0.0.1:18050".to_string());
+    let mut connecting = use_signal(|| false);
+    let mut error_msg: Signal<Option<String>> = use_signal(|| None);
 
-    // TODO: When this changes, we have to make it available to children props
     let mut ws = crate::hooks::use_ws_provider();
 
     let connect = move |_| {
+        if connecting() {
+            return;
+        }
+        connecting.set(true);
+        error_msg.set(None);
         spawn(async move {
-            // let mut ws = use_context::<DebugConnection>();
-            println!("before connect");
-            let socket = ws.write().connect(&url()).await;
-            println!("after connect");
-
-            match socket {
-                Ok(connection) => {
-                    println!("socket ok");
-                },
+            match do_connect(&url()).await {
+                Ok(state) => {
+                    let mut w = ws.write();
+                    w.state = state;
+                    w.is_open = true;
+                }
                 Err(err) => {
-                    println!("Error: {}", err);
+                    error_msg.set(Some(format!("Failed to connect: {err}")));
                 }
             }
+            connecting.set(false);
         });
     };
 
     rsx! {
-        // Only display the children when the connection is established and open
         if ws().is_open() {
-            { println!("socket open") }
             { props.children }
         } else {
-            { println!("rendering provider") }
-            input {
-                value: "{url}",
-                oninput: move |event| url.set(event.value()),
-            }
-            button { class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg",
-                onclick: connect,
-                "Connect"
+            div { class: "flex flex-col items-center gap-4 p-8",
+                div { class: "flex gap-2 items-center",
+                    input {
+                        class: "border rounded px-3 py-2 text-sm font-mono w-64",
+                        value: "{url}",
+                        disabled: connecting(),
+                        oninput: move |event| url.set(event.value()),
+                    }
+                    button {
+                        class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg disabled:opacity-50",
+                        disabled: connecting(),
+                        onclick: connect,
+                        if connecting() {
+                            "Connecting..."
+                        } else {
+                            "Connect"
+                        }
+                    }
+                }
+                if let Some(err) = error_msg() {
+                    p { class: "text-red-500 text-sm", "{err}" }
+                }
             }
         }
     }

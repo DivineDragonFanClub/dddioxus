@@ -1,9 +1,8 @@
-use std::sync::{Arc, RwLock};
 use dioxus::prelude::*;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use tokio_tungstenite::tungstenite::{Error, Message};
-use crate::hooks::websocket::DebugConnection;
-use crate::protocol::{RequestMessage, RmcRequestPacket, RmcResponsePacket};
+use crate::hooks::websocket::{ConnectionState, DebugConnection, do_recv, do_send};
+use crate::protocol::{RequestMessage, RmcRequestPacket};
 
 #[derive(PartialEq, Clone, Props)]
 pub struct MessageContextProviderProps {
@@ -14,49 +13,54 @@ pub struct MessageContextProviderProps {
 pub fn MessageContextProvider(props: MessageContextProviderProps) -> Element {
     let mut ws = use_context::<Signal<DebugConnection>>();
 
-    // Only provide the coroutine to child Elements if the WebSocket is open
     if ws().is_open() {
-        println!("ws open");
-        use_coroutine(|mut rx: UnboundedReceiver<RequestMessage>| async move {
-            println!("use coroutine");
-            while let Some(mut msg) = rx.next().await {
-                let message = RmcRequestPacket {
+        use_coroutine(move |mut rx: UnboundedReceiver<RequestMessage>| async move {
+            while let Some(msg) = rx.next().await {
+                // Clone Arc handles out of the signal without holding a borrow across await
+                let (sender, reader) = {
+                    let conn = ws.read();
+                    match (&conn.state, &conn.state) {
+                        (ConnectionState::Connected { sender, .. }, ConnectionState::Connected { reader, .. }) => {
+                            (sender.clone(), reader.clone())
+                        }
+                        _ => continue,
+                    }
+                };
+
+                let packet = RmcRequestPacket {
                     call_id: 0,
                     method_id: msg.method_id,
                     params: msg.bytes,
                 };
 
-                    let message = Message::Binary(serde_json::to_vec(&message).unwrap());
-                    ws.write().send(message).await;
-
-                    if let Some(res) = ws().recv().await {
-                        match res {
-                            Ok(message) => {
-                                match message {
-                                    Message::Binary(resp) => {
-                                        let response = serde_json::from_slice(&resp).unwrap();
-                                        msg.sender.send(response).unwrap();
-                                    }
-                                    Message::Close(_) => {
-                                        println!("close message");
-                                    }
-                                    _ => println!("other message")
-                                }
-                            }
-                            Err(err) => {
-                                match err {
-                                    Error::ConnectionClosed | Error::Io(_) => {
-                                        println!("ConnectionClosed or IO ");
-                                        // TODO: Close the websocket somehow
-                                        ws.write().close().await;
-                                    }
-                                    _ => println!("other error kind: {}", err)
-                                }
-                            }
-                        }
-                    }
+                let ws_msg = Message::Binary(serde_json::to_vec(&packet).unwrap());
+                if !do_send(&sender, ws_msg).await {
+                    ws.write().state = ConnectionState::Closed;
+                    ws.write().is_open = false;
+                    continue;
                 }
 
+                if let Some(res) = do_recv(&reader).await {
+                    match res {
+                        Ok(Message::Binary(resp)) => {
+                            let response = serde_json::from_slice(&resp).unwrap();
+                            let _ = msg.sender.send(response);
+                        }
+                        Ok(Message::Close(_)) => {
+                            println!("Server sent close frame");
+                            ws.write().state = ConnectionState::Closed;
+                            ws.write().is_open = false;
+                        }
+                        Ok(_) => println!("Unexpected message type"),
+                        Err(Error::ConnectionClosed | Error::Io(_)) => {
+                            println!("Connection closed or IO error");
+                            ws.write().state = ConnectionState::Closed;
+                            ws.write().is_open = false;
+                        }
+                        Err(err) => println!("WebSocket error: {err}"),
+                    }
+                }
+            }
         });
     }
 

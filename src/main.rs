@@ -8,7 +8,7 @@ use dioxus::desktop::muda::MenuItemKind::MenuItem;
 use dioxus::prelude::*;
 use dioxus::desktop::tao::event::Event as WryEvent;
 use dioxus::desktop::tao::event::WindowEvent;
-use log::LevelFilter;
+use dioxus_logger::tracing::Level;
 
 use hooks::use_command;
 use protocol::GetSceneNameRequest;
@@ -30,7 +30,7 @@ enum Route {
 
 fn main() {
     // Init debug
-    dioxus_logger::init(LevelFilter::Info).expect("failed to init logger");
+    dioxus_logger::init(Level::INFO).expect("failed to init logger");
 
     let window = WindowBuilder::new()
         .with_title("Divine Debugging Dragon");
@@ -142,7 +142,7 @@ fn Message() -> Element {
                 "Message response could not be acquired"
             }
             button { class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg",
-                    onclick: move |_| needs_update(),
+                    onclick: move |_| res.restart(),
                     { "Send again" }
                 }
         }
