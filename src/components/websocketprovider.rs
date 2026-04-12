@@ -28,7 +28,7 @@ pub fn WebSocketProvider(props: WebsocketProviderProps) -> Element {
                     w.is_open = true;
                 }
                 Err(err) => {
-                    error_msg.set(Some(format!("Failed to connect: {err}")));
+                    error_msg.set(Some(format!("{err}")));
                 }
             }
             connecting.set(false);
@@ -39,28 +39,22 @@ pub fn WebSocketProvider(props: WebsocketProviderProps) -> Element {
         if ws().is_open() {
             { props.children }
         } else {
-            div { class: "flex flex-col items-center gap-4 p-8",
-                div { class: "flex gap-2 items-center",
-                    input {
-                        class: "border rounded px-3 py-2 text-sm font-mono w-64",
-                        value: "{url}",
-                        disabled: connecting(),
-                        oninput: move |event| url.set(event.value()),
-                    }
-                    button {
-                        class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg disabled:opacity-50",
-                        disabled: connecting(),
-                        onclick: connect,
-                        if connecting() {
-                            "Connecting..."
-                        } else {
-                            "Connect"
-                        }
-                    }
+            input {
+                value: "{url}",
+                disabled: connecting(),
+                oninput: move |event| url.set(event.value()),
+            }
+            button { class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg",
+                disabled: connecting(),
+                onclick: connect,
+                if connecting() {
+                    "Connecting..."
+                } else {
+                    "Connect"
                 }
-                if let Some(err) = error_msg() {
-                    p { class: "text-red-500 text-sm", "{err}" }
-                }
+            }
+            if let Some(err) = error_msg() {
+                p { class: "text-red-500 text-sm", "{err}" }
             }
         }
     }

@@ -16,11 +16,10 @@ pub fn MessageContextProvider(props: MessageContextProviderProps) -> Element {
     if ws().is_open() {
         use_coroutine(move |mut rx: UnboundedReceiver<RequestMessage>| async move {
             while let Some(msg) = rx.next().await {
-                // Clone Arc handles out of the signal without holding a borrow across await
                 let (sender, reader) = {
                     let conn = ws.read();
-                    match (&conn.state, &conn.state) {
-                        (ConnectionState::Connected { sender, .. }, ConnectionState::Connected { reader, .. }) => {
+                    match &conn.state {
+                        ConnectionState::Connected { sender, reader } => {
                             (sender.clone(), reader.clone())
                         }
                         _ => continue,
@@ -46,18 +45,11 @@ pub fn MessageContextProvider(props: MessageContextProviderProps) -> Element {
                             let response = serde_json::from_slice(&resp).unwrap();
                             let _ = msg.sender.send(response);
                         }
-                        Ok(Message::Close(_)) => {
-                            println!("Server sent close frame");
+                        Ok(Message::Close(_)) | Err(Error::ConnectionClosed | Error::Io(_)) => {
                             ws.write().state = ConnectionState::Closed;
                             ws.write().is_open = false;
                         }
-                        Ok(_) => println!("Unexpected message type"),
-                        Err(Error::ConnectionClosed | Error::Io(_)) => {
-                            println!("Connection closed or IO error");
-                            ws.write().state = ConnectionState::Closed;
-                            ws.write().is_open = false;
-                        }
-                        Err(err) => println!("WebSocket error: {err}"),
+                        _ => {}
                     }
                 }
             }

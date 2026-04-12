@@ -24,26 +24,17 @@ impl ConnectionState {
     }
 }
 
-/// Connect to the debug server. Retries with short timeouts because Ryujinx sucks ASS
-/// and does not properly respect the opt arguments.
 pub async fn do_connect(url: &str) -> std::io::Result<ConnectionState> {
-    for attempt in 1..=10 {
+    for _ in 0..10 {
         match tokio::time::timeout(Duration::from_secs(2), connect_async(url)).await {
             Ok(Ok((ws, _))) => {
-                println!("Connected to {url} (attempt {attempt})");
                 let (sender, reader) = ws.split();
                 return Ok(ConnectionState::Connected {
                     sender: Arc::new(RwLock::new(sender)),
                     reader: Arc::new(RwLock::new(reader)),
                 });
             }
-            Ok(Err(e)) => {
-                println!("Connection failed: {e}");
-                return Err(std::io::Error::other(e));
-            }
-            Err(_) => {
-                
-            }
+            Ok(Err(_)) | Err(_) => {}
         }
     }
 
@@ -75,20 +66,6 @@ pub struct DebugConnection {
 impl DebugConnection {
     pub fn is_open(&self) -> bool {
         self.state.is_open()
-    }
-
-    pub fn get_sender(&self) -> Option<Arc<RwLock<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>> {
-        match &self.state {
-            ConnectionState::Connected { sender, .. } => Some(sender.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn get_reader(&self) -> Option<Arc<RwLock<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>>> {
-        match &self.state {
-            ConnectionState::Connected { reader, .. } => Some(reader.clone()),
-            _ => None,
-        }
     }
 }
 
