@@ -1,5 +1,2 @@
-pub mod websocket;
-pub mod command;
-
-pub use websocket::*;
-pub use command::*;
+pub mod client;
+pub mod connection;

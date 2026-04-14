@@ -1,2 +1,10 @@
-pub mod websocketprovider;
-pub mod messagecontextprovider;
+pub mod components_panel;
+pub mod connection_provider;
+pub mod fields;
+pub mod globals_view;
+pub mod inspector;
+pub mod procs_view;
+pub mod scene_tree;
+pub mod scene_view;
+pub mod shell;
+pub mod transform_inspector;
