@@ -53,7 +53,7 @@ fn Sidebar() -> Element {
 fn dev_nav_item() -> Element {
     rsx! {
         div { class: "mt-auto pt-2 border-t border-gray-800",
-            NavItem { route: Route::DevIndex {}, label: "Dev" }
+            NavItem { route: Route::DevIndex {}, label: "UI Storybook" }
         }
     }
 }

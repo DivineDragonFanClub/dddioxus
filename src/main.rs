@@ -2,7 +2,7 @@
 
 extern crate core;
 
-use dioxus::desktop::muda::{Menu, MenuId, MenuItemBuilder};
+use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
 use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
@@ -83,15 +83,25 @@ fn main() {
 
     let window = WindowBuilder::new().with_title("Divine Debugging Dragon");
 
+    // Build a standard Edit submenu so Cmd+C/V/X/A route through the
+    // macOS responder chain to the focused input field. Without these
+    // key equivalents registered in the menu bar, the shortcuts never
+    // fire inside input elements.
     let menu = Menu::new();
-    menu.append(
-        &MenuItemBuilder::new()
-            .text("Schlong")
-            .enabled(true)
-            .id(MenuId("test".into()))
-            .build(),
-    )
-    .unwrap();
+    let edit_menu = Submenu::new("Edit", true);
+    edit_menu
+        .append_items(&[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::select_all(None),
+        ])
+        .unwrap();
+    menu.append(&edit_menu).unwrap();
 
     let config = Config::new().with_menu(menu).with_window(window);
 

@@ -96,6 +96,7 @@ pub fn TransformPanel(props: TransformPanelProps) -> Element {
                     Vec3Editor {
                         label: "Rotation",
                         value: tf.local_rotation,
+                        wrap: Some(360.0),
                         on_change: move |v: Vec3| on_change.call(SetTransformRequest {
                             path: p_rot.clone(),
                             local_position: None,

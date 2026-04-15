@@ -10,6 +10,9 @@ dev = []
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop", "router"] }
 
+# OS clipboard access
+arboard = "3"
+
 # Sora protocol
 sora-protocol = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }
 sora-codecs = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }
