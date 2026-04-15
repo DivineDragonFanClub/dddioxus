@@ -45,6 +45,6 @@ pub struct ToggleGameObjectResponse {
 }
 
 impl Command for ToggleGameObjectRequest {
-    const ID: CommandId = CommandId::new(ENGAGE_NS, 2);
+    const ID: CommandId = CommandId::new(ENGAGE_NS, 1);
     type Response = ToggleGameObjectResponse;
 }

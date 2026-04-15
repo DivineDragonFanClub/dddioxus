@@ -25,7 +25,7 @@ pub struct GetTransformResponse {
 }
 
 impl Command for GetTransformRequest {
-    const ID: CommandId = CommandId::new(ENGAGE_NS, 3);
+    const ID: CommandId = CommandId::new(ENGAGE_NS, 2);
     type Response = GetTransformResponse;
 }
 
@@ -46,6 +46,6 @@ pub struct SetTransformResponse {
 }
 
 impl Command for SetTransformRequest {
-    const ID: CommandId = CommandId::new(ENGAGE_NS, 4);
+    const ID: CommandId = CommandId::new(ENGAGE_NS, 3);
     type Response = SetTransformResponse;
 }

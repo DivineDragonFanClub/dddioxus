@@ -23,7 +23,7 @@ pub struct GetComponentsResponse {
 }
 
 impl Command for GetComponentsRequest {
-    const ID: CommandId = CommandId::new(ENGAGE_NS, 5);
+    const ID: CommandId = CommandId::new(ENGAGE_NS, 4);
     type Response = GetComponentsResponse;
 }
 
@@ -41,6 +41,6 @@ pub struct ToggleComponentResponse {
 }
 
 impl Command for ToggleComponentRequest {
-    const ID: CommandId = CommandId::new(ENGAGE_NS, 6);
+    const ID: CommandId = CommandId::new(ENGAGE_NS, 5);
     type Response = ToggleComponentResponse;
 }
