@@ -21,7 +21,7 @@ pub struct ProcRoot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetProcTreeRequest;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetProcTreeResponse {
     pub roots: Vec<ProcRoot>,
 }
@@ -44,7 +44,7 @@ pub struct ProcDescInfo {
     pub label: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetProcDescsResponse {
     pub descs: Vec<ProcDescInfo>,
     pub desc_index: i32,

@@ -7,11 +7,11 @@ use crate::protocol::{
 use crate::rpc;
 
 #[derive(Clone, PartialEq, Debug)]
-struct Selection {
-    root: String,
-    path: Vec<u32>,
-    name: String,
-    hashcode: i32,
+pub struct Selection {
+    pub root: String,
+    pub path: Vec<u32>,
+    pub name: String,
+    pub hashcode: i32,
 }
 
 const PANEL_MIN_WIDTH: f64 = 200.0;
@@ -25,11 +25,13 @@ pub fn ProcsView() -> Element {
     let mut data = use_signal(|| None::<Result<GetProcTreeResponse, String>>);
     let mut mounted = use_signal(|| false);
     let mut selected = use_signal(|| None::<Selection>);
-    let mut panel_width = use_signal(|| PANEL_DEFAULT_WIDTH);
-    let mut drag_state = use_signal(|| None::<DragState>);
+    let mut descs_data = use_signal(|| None::<Result<GetProcDescsResponse, String>>);
+    let mut last_descs_key = use_signal(String::new);
 
     let mut fetch = move || {
-        if loading() { return; }
+        if loading() {
+            return;
+        }
         loading.set(true);
         spawn(async move {
             let result = rpc::call(&conn, GetProcTreeRequest).await;
@@ -43,7 +45,59 @@ pub fn ProcsView() -> Element {
         fetch();
     }
 
+    let current_selected = selected();
+    let current_key = match current_selected.as_ref() {
+        Some(sel) => format!("{}/{:?}", sel.root, sel.path),
+        None => String::new(),
+    };
+    if last_descs_key() != current_key {
+        last_descs_key.set(current_key);
+        match current_selected.as_ref() {
+            Some(sel) => {
+                let req = GetProcDescsRequest {
+                    root: sel.root.clone(),
+                    path: sel.path.clone(),
+                };
+                descs_data.set(None);
+                spawn(async move {
+                    let result = rpc::call(&conn, req).await;
+                    descs_data.set(Some(result));
+                });
+            }
+            None => descs_data.set(None),
+        }
+    }
+
     let on_select = use_callback(move |sel: Selection| selected.set(Some(sel)));
+
+    rsx! {
+        ProcsPanel {
+            data: data(),
+            loading: loading(),
+            selected: selected(),
+            descs_data: descs_data(),
+            on_refresh: move |_| fetch(),
+            on_select: on_select,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+pub struct ProcsPanelProps {
+    pub data: Option<Result<GetProcTreeResponse, String>>,
+    pub loading: bool,
+    pub selected: Option<Selection>,
+    pub descs_data: Option<Result<GetProcDescsResponse, String>>,
+    pub on_refresh: EventHandler<()>,
+    pub on_select: Callback<Selection>,
+}
+
+#[component]
+pub fn ProcsPanel(props: ProcsPanelProps) -> Element {
+    let mut panel_width = use_signal(|| PANEL_DEFAULT_WIDTH);
+    let mut drag_state = use_signal(|| None::<DragState>);
+    let on_refresh = props.on_refresh;
+    let on_select = props.on_select;
     let dragging = drag_state().is_some();
 
     rsx! {
@@ -52,14 +106,14 @@ pub fn ProcsView() -> Element {
                 h2 { class: "text-white font-bold text-sm", "Proc Tree" }
                 button {
                     class: "ml-auto text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: loading(),
-                    onclick: move |_| fetch(),
-                    if loading() { "Refreshing..." } else { "Refresh" }
+                    disabled: props.loading,
+                    onclick: move |_| on_refresh.call(()),
+                    if props.loading { "Refreshing..." } else { "Refresh" }
                 }
             }
             div { class: "flex flex-1 overflow-hidden",
                 div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
-                    match data().as_ref() {
+                    match props.data.as_ref() {
                         Some(Ok(resp)) => rsx! {
                             for root in resp.roots.iter() {
                                 div { key: "{root.label}", class: "mb-4",
@@ -77,7 +131,7 @@ pub fn ProcsView() -> Element {
                                                 path: vec![i as u32],
                                                 node: node.clone(),
                                                 is_next: i > 0,
-                                                selected: selected(),
+                                                selected: props.selected.clone(),
                                                 on_select: on_select,
                                             }
                                         }
@@ -93,7 +147,7 @@ pub fn ProcsView() -> Element {
                         },
                     }
                 }
-                if let Some(sel) = selected() {
+                if let Some(sel) = props.selected.clone() {
                     div {
                         class: "w-1 shrink-0 bg-gray-700 hover:bg-indigo-500 cursor-col-resize",
                         onmousedown: move |e| {
@@ -103,11 +157,13 @@ pub fn ProcsView() -> Element {
                             }));
                         },
                     }
-                    DescsPanel { selection: sel, width: panel_width() }
+                    DescsPanel {
+                        selection: sel,
+                        width: panel_width(),
+                        data: props.descs_data.clone(),
+                    }
                 }
             }
-            // Transparent overlay grabs every mouse event while a drag is in progress so
-            // the cursor never escapes the splitter, even when crossing iframes/inputs.
             if dragging {
                 div {
                     class: "absolute inset-0 z-50 cursor-col-resize",
@@ -134,17 +190,17 @@ struct DragState {
 }
 
 #[derive(PartialEq, Clone, Props)]
-struct ProcTreeNodeProps {
-    root_label: String,
-    path: Vec<u32>,
-    node: ProcNode,
-    is_next: bool,
-    selected: Option<Selection>,
-    on_select: Callback<Selection>,
+pub struct ProcTreeNodeProps {
+    pub root_label: String,
+    pub path: Vec<u32>,
+    pub node: ProcNode,
+    pub is_next: bool,
+    pub selected: Option<Selection>,
+    pub on_select: Callback<Selection>,
 }
 
 #[component]
-fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
+pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
     let has_children = !props.node.children.is_empty();
     let mut expanded = use_signal(|| false);
 
@@ -235,30 +291,14 @@ fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
 }
 
 #[derive(PartialEq, Clone, Props)]
-struct DescsPanelProps {
-    selection: Selection,
-    width: f64,
+pub struct DescsPanelProps {
+    pub selection: Selection,
+    pub width: f64,
+    pub data: Option<Result<GetProcDescsResponse, String>>,
 }
 
 #[component]
-fn DescsPanel(props: DescsPanelProps) -> Element {
-    let conn = use_context::<Signal<ConnectionState>>();
-    let mut data = use_signal(|| None::<Result<GetProcDescsResponse, String>>);
-    let mut last_key = use_signal(String::new);
-
-    let key = format!("{}/{:?}", props.selection.root, props.selection.path);
-    if last_key() != key {
-        last_key.set(key);
-        let req = GetProcDescsRequest {
-            root: props.selection.root.clone(),
-            path: props.selection.path.clone(),
-        };
-        spawn(async move {
-            let result = rpc::call(&conn, req).await;
-            data.set(Some(result));
-        });
-    }
-
+pub fn DescsPanel(props: DescsPanelProps) -> Element {
     let width = props.width as i32;
 
     rsx! {
@@ -272,7 +312,7 @@ fn DescsPanel(props: DescsPanelProps) -> Element {
                 }
             }
             div { class: "p-3",
-                match data().as_ref() {
+                match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let descs = resp.descs.clone();
                         let current = resp.desc_index;

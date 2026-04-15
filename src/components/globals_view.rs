@@ -12,7 +12,6 @@ pub fn GlobalsView() -> Element {
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetGlobalVariablesResponse, String>>);
     let mut mounted = use_signal(|| false);
-    let mut search = use_signal(String::new);
 
     let mut fetch = move || {
         if loading() { return; }
@@ -29,16 +28,46 @@ pub fn GlobalsView() -> Element {
         fetch();
     }
 
-    let apply = use_callback(move |updated: GlobalVariable| {
-        data.with_mut(|slot| {
-            if let Some(Ok(resp)) = slot.as_mut() {
-                if let Some(row) = resp.variables.iter_mut().find(|v| v.name == updated.name) {
-                    row.kind = updated.kind;
-                    row.value = updated.value;
-                }
+    let on_commit = move |req: SetGlobalVariableRequest| {
+        spawn(async move {
+            if let Ok(resp) = rpc::call(&conn, req).await {
+                data.with_mut(|slot| {
+                    if let Some(Ok(response)) = slot.as_mut() {
+                        if let Some(row) =
+                            response.variables.iter_mut().find(|v| v.name == resp.name)
+                        {
+                            row.kind = resp.kind;
+                            row.value = resp.value;
+                        }
+                    }
+                });
             }
         });
-    });
+    };
+
+    rsx! {
+        GlobalsPanel {
+            data: data(),
+            loading: loading(),
+            on_refresh: move |_| fetch(),
+            on_commit: on_commit,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+pub struct GlobalsPanelProps {
+    pub data: Option<Result<GetGlobalVariablesResponse, String>>,
+    pub loading: bool,
+    pub on_refresh: EventHandler<()>,
+    pub on_commit: EventHandler<SetGlobalVariableRequest>,
+}
+
+#[component]
+pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
+    let mut search = use_signal(String::new);
+    let on_refresh = props.on_refresh;
+    let on_commit = props.on_commit;
 
     rsx! {
         div { class: "flex flex-col h-full",
@@ -52,13 +81,13 @@ pub fn GlobalsView() -> Element {
                 }
                 button {
                     class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: loading(),
-                    onclick: move |_| fetch(),
-                    if loading() { "Refreshing..." } else { "Refresh" }
+                    disabled: props.loading,
+                    onclick: move |_| on_refresh.call(()),
+                    if props.loading { "Refreshing..." } else { "Refresh" }
                 }
             }
             div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
-                match data().as_ref() {
+                match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let query = search().to_lowercase();
                         let filtered: Vec<_> = resp.variables.iter()
@@ -76,7 +105,7 @@ pub fn GlobalsView() -> Element {
                                 GlobalRow {
                                     key: "{v.name}",
                                     variable: v,
-                                    on_change: move |updated| apply.call(updated),
+                                    on_commit: on_commit,
                                 }
                             }
                             if shown == 0 {
@@ -97,14 +126,13 @@ pub fn GlobalsView() -> Element {
 }
 
 #[derive(PartialEq, Clone, Props)]
-struct GlobalRowProps {
-    variable: GlobalVariable,
-    on_change: EventHandler<GlobalVariable>,
+pub struct GlobalRowProps {
+    pub variable: GlobalVariable,
+    pub on_commit: EventHandler<SetGlobalVariableRequest>,
 }
 
 #[component]
-fn GlobalRow(props: GlobalRowProps) -> Element {
-    let conn = use_context::<Signal<ConnectionState>>();
+pub fn GlobalRow(props: GlobalRowProps) -> Element {
     let name = props.variable.name.clone();
     let kind = props.variable.kind.clone();
     let mut editing = use_signal(|| false);
@@ -113,26 +141,17 @@ fn GlobalRow(props: GlobalRowProps) -> Element {
     let commit = {
         let name = name.clone();
         let kind = kind.clone();
-        let on_change = props.on_change;
+        let on_commit = props.on_commit;
         let current = props.variable.value.clone();
         move || {
             editing.set(false);
             if draft() == current {
                 return;
             }
-            let req = SetGlobalVariableRequest {
+            on_commit.call(SetGlobalVariableRequest {
                 name: name.clone(),
                 kind: kind.clone(),
                 value: draft(),
-            };
-            spawn(async move {
-                if let Ok(resp) = rpc::call(&conn, req).await {
-                    on_change.call(GlobalVariable {
-                        name: resp.name,
-                        kind: resp.kind,
-                        value: resp.value,
-                    });
-                }
             });
         }
     };

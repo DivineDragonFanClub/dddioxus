@@ -2,17 +2,28 @@
 
 extern crate core;
 
-use dioxus::desktop::muda::{Menu, MenuId, MenuItemBuilder};
+use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
 use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
+use components::connection_provider::ConnectionProvider;
 use components::globals_view::GlobalsView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
+use hooks::connection::use_connection;
+
+#[cfg(any(debug_assertions, feature = "dev"))]
+use dev::{
+    DevComponentRow, DevComponentsListPanel, DevDescsPanel, DevGlobalRow, DevGlobalsPanel,
+    DevIndex, DevProcTreeNode, DevProcsPanel, DevScenePanel, DevSceneTree, DevTransformPanel,
+    DevVec3Editor,
+};
 
 mod components;
+#[cfg(any(debug_assertions, feature = "dev"))]
+pub mod dev;
 mod hooks;
 mod protocol;
 mod rpc;
@@ -28,6 +39,43 @@ pub enum Route {
         Globals {},
         #[route("/procs")]
         Procs {},
+
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev")]
+        DevIndex {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/vec3-editor")]
+        DevVec3Editor {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/scene-tree")]
+        DevSceneTree {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/scene-panel")]
+        DevScenePanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/global-row")]
+        DevGlobalRow {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/globals-panel")]
+        DevGlobalsPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/component-row")]
+        DevComponentRow {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/components-list-panel")]
+        DevComponentsListPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/transform-panel")]
+        DevTransformPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/proc-tree-node")]
+        DevProcTreeNode {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/descs-panel")]
+        DevDescsPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/procs-panel")]
+        DevProcsPanel {},
 }
 
 fn main() {
@@ -35,15 +83,25 @@ fn main() {
 
     let window = WindowBuilder::new().with_title("Divine Debugging Dragon");
 
+    // Build a standard Edit submenu so Cmd+C/V/X/A route through the
+    // macOS responder chain to the focused input field. Without these
+    // key equivalents registered in the menu bar, the shortcuts never
+    // fire inside input elements.
     let menu = Menu::new();
-    menu.append(
-        &MenuItemBuilder::new()
-            .text("Schlong")
-            .enabled(true)
-            .id(MenuId("test".into()))
-            .build(),
-    )
-    .unwrap();
+    let edit_menu = Submenu::new("Edit", true);
+    edit_menu
+        .append_items(&[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::select_all(None),
+        ])
+        .unwrap();
+    menu.append(&edit_menu).unwrap();
 
     let config = Config::new().with_menu(menu).with_window(window);
 
@@ -52,6 +110,10 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // Establish the connection signal once at the app root so it persists
+    // across route changes and is available to any descendant via context.
+    use_connection();
+
     rsx! {
         document::Stylesheet { href: TAILWIND }
         document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; }}" }
@@ -63,15 +125,27 @@ fn App() -> Element {
 
 #[component]
 fn Scene() -> Element {
-    rsx! { SceneView {} }
+    rsx! {
+        ConnectionProvider {
+            SceneView {}
+        }
+    }
 }
 
 #[component]
 fn Globals() -> Element {
-    rsx! { GlobalsView {} }
+    rsx! {
+        ConnectionProvider {
+            GlobalsView {}
+        }
+    }
 }
 
 #[component]
 fn Procs() -> Element {
-    rsx! { ProcsView {} }
+    rsx! {
+        ConnectionProvider {
+            ProcsView {}
+        }
+    }
 }
