@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 
-use super::connection_provider::ConnectionProvider;
 use crate::Route;
 
 #[component]
@@ -15,16 +14,14 @@ pub fn Shell() -> Element {
     let _ = &current;
 
     rsx! {
-        ConnectionProvider {
-            div { class: "flex flex-1 overflow-hidden",
-                if on_dev {
-                    {dev_sidebar()}
-                } else {
-                    Sidebar {}
-                }
-                div { class: "flex-1 overflow-hidden",
-                    Outlet::<Route> {}
-                }
+        div { class: "flex flex-1 overflow-hidden",
+            if on_dev {
+                {dev_sidebar()}
+            } else {
+                Sidebar {}
+            }
+            div { class: "flex-1 overflow-hidden",
+                Outlet::<Route> {}
             }
         }
     }

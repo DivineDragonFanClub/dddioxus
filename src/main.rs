@@ -7,10 +7,12 @@ use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
+use components::connection_provider::ConnectionProvider;
 use components::globals_view::GlobalsView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
+use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]
 use dev::{
@@ -98,6 +100,10 @@ fn main() {
 
 #[component]
 fn App() -> Element {
+    // Establish the connection signal once at the app root so it persists
+    // across route changes and is available to any descendant via context.
+    use_connection();
+
     rsx! {
         document::Stylesheet { href: TAILWIND }
         document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; }}" }
@@ -109,15 +115,27 @@ fn App() -> Element {
 
 #[component]
 fn Scene() -> Element {
-    rsx! { SceneView {} }
+    rsx! {
+        ConnectionProvider {
+            SceneView {}
+        }
+    }
 }
 
 #[component]
 fn Globals() -> Element {
-    rsx! { GlobalsView {} }
+    rsx! {
+        ConnectionProvider {
+            GlobalsView {}
+        }
+    }
 }
 
 #[component]
 fn Procs() -> Element {
-    rsx! { ProcsView {} }
+    rsx! {
+        ConnectionProvider {
+            ProcsView {}
+        }
+    }
 }

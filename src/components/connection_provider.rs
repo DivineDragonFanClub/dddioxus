@@ -1,8 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::hooks::connection::{
-    discover_and_connect, ClientConfig, ConnectionState,
-};
+use crate::hooks::connection::{discover_and_connect, ClientConfig, ConnectionState};
 
 #[derive(PartialEq, Clone, Props)]
 pub struct ConnectionProviderProps {
@@ -15,7 +13,7 @@ pub struct ConnectionProviderProps {
 pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     let mut connecting = use_signal(|| false);
     let mut error_msg: Signal<Option<String>> = use_signal(|| None);
-    let mut conn = crate::hooks::connection::use_connection();
+    let mut conn = use_context::<Signal<ConnectionState>>();
     let config = props.config.clone();
 
     let connect = move |_| {
