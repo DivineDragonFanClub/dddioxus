@@ -12,7 +12,6 @@ pub fn GlobalsView() -> Element {
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetGlobalVariablesResponse, String>>);
     let mut mounted = use_signal(|| false);
-    let mut search = use_signal(String::new);
 
     let mut fetch = move || {
         if loading() { return; }
@@ -47,6 +46,30 @@ pub fn GlobalsView() -> Element {
     };
 
     rsx! {
+        GlobalsPanel {
+            data: data(),
+            loading: loading(),
+            on_refresh: move |_| fetch(),
+            on_commit: on_commit,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+pub struct GlobalsPanelProps {
+    pub data: Option<Result<GetGlobalVariablesResponse, String>>,
+    pub loading: bool,
+    pub on_refresh: EventHandler<()>,
+    pub on_commit: EventHandler<SetGlobalVariableRequest>,
+}
+
+#[component]
+pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
+    let mut search = use_signal(String::new);
+    let on_refresh = props.on_refresh;
+    let on_commit = props.on_commit;
+
+    rsx! {
         div { class: "flex flex-col h-full",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
                 h2 { class: "text-white font-bold text-sm", "Global Variables" }
@@ -58,13 +81,13 @@ pub fn GlobalsView() -> Element {
                 }
                 button {
                     class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: loading(),
-                    onclick: move |_| fetch(),
-                    if loading() { "Refreshing..." } else { "Refresh" }
+                    disabled: props.loading,
+                    onclick: move |_| on_refresh.call(()),
+                    if props.loading { "Refreshing..." } else { "Refresh" }
                 }
             }
             div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
-                match data().as_ref() {
+                match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let query = search().to_lowercase();
                         let filtered: Vec<_> = resp.variables.iter()
@@ -103,13 +126,13 @@ pub fn GlobalsView() -> Element {
 }
 
 #[derive(PartialEq, Clone, Props)]
-struct GlobalRowProps {
-    variable: GlobalVariable,
-    on_commit: EventHandler<SetGlobalVariableRequest>,
+pub struct GlobalRowProps {
+    pub variable: GlobalVariable,
+    pub on_commit: EventHandler<SetGlobalVariableRequest>,
 }
 
 #[component]
-fn GlobalRow(props: GlobalRowProps) -> Element {
+pub fn GlobalRow(props: GlobalRowProps) -> Element {
     let name = props.variable.name.clone();
     let kind = props.variable.kind.clone();
     let mut editing = use_signal(|| false);

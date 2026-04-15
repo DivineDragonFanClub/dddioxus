@@ -20,7 +20,9 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
     let mut fetch = {
         let path = path.clone();
         move || {
-            if loading() { return; }
+            if loading() {
+                return;
+            }
             loading.set(true);
             let path = path.clone();
             spawn(async move {
@@ -37,17 +39,39 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
         fetch();
     }
 
-    match data().as_ref() {
+    let on_change = move |req: SetTransformRequest| {
+        spawn(async move {
+            let _ = rpc::call(&conn, req).await;
+        });
+    };
+
+    rsx! {
+        TransformPanel {
+            data: data(),
+            on_refresh: move |_| fetch(),
+            on_change: on_change,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+pub struct TransformPanelProps {
+    pub data: Option<Result<GetTransformResponse, String>>,
+    pub on_refresh: EventHandler<()>,
+    pub on_change: EventHandler<SetTransformRequest>,
+}
+
+#[component]
+pub fn TransformPanel(props: TransformPanelProps) -> Element {
+    let on_refresh = props.on_refresh;
+    let on_change = props.on_change;
+
+    match props.data.as_ref() {
         Some(Ok(tf)) => {
             let tf = tf.clone();
-            let set = move |req: SetTransformRequest| {
-                spawn(async move {
-                    let _ = rpc::call(&conn, req).await;
-                });
-            };
-            let p_pos = path.clone();
-            let p_rot = path.clone();
-            let p_scale = path.clone();
+            let p_pos = tf.path.clone();
+            let p_rot = tf.path.clone();
+            let p_scale = tf.path.clone();
 
             rsx! {
                 div { class: "p-3 bg-gray-900 border-t border-gray-700 font-mono text-xs",
@@ -55,14 +79,14 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
                         h3 { class: "text-white font-bold text-sm", "Transform" }
                         button {
                             class: "text-gray-400 hover:text-white text-xs",
-                            onclick: move |_| fetch(),
+                            onclick: move |_| on_refresh.call(()),
                             "↻"
                         }
                     }
                     Vec3Editor {
                         label: "Position",
                         value: tf.local_position,
-                        on_change: move |v: Vec3| set(SetTransformRequest {
+                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
                             path: p_pos.clone(),
                             local_position: Some(v),
                             local_rotation: None,
@@ -72,7 +96,7 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
                     Vec3Editor {
                         label: "Rotation",
                         value: tf.local_rotation,
-                        on_change: move |v: Vec3| set(SetTransformRequest {
+                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
                             path: p_rot.clone(),
                             local_position: None,
                             local_rotation: Some(v),
@@ -82,7 +106,7 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
                     Vec3Editor {
                         label: "Scale",
                         value: tf.local_scale,
-                        on_change: move |v: Vec3| set(SetTransformRequest {
+                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
                             path: p_scale.clone(),
                             local_position: None,
                             local_rotation: None,

@@ -21,7 +21,9 @@ pub fn ComponentsPanel(props: ComponentsPanelProps) -> Element {
     let fetch = use_callback({
         let path = path.clone();
         move |_: ()| {
-            if loading() { return; }
+            if loading() {
+                return;
+            }
             loading.set(true);
             let path = path.clone();
             spawn(async move {
@@ -49,7 +51,28 @@ pub fn ComponentsPanel(props: ComponentsPanelProps) -> Element {
         fetch.call(());
     }
 
-    match data().as_ref() {
+    rsx! {
+        ComponentsListPanel {
+            data: data(),
+            on_refresh: move |_| fetch.call(()),
+            on_toggle: on_toggle,
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+pub struct ComponentsListPanelProps {
+    pub data: Option<Result<GetComponentsResponse, String>>,
+    pub on_refresh: EventHandler<()>,
+    pub on_toggle: Callback<u32>,
+}
+
+#[component]
+pub fn ComponentsListPanel(props: ComponentsListPanelProps) -> Element {
+    let on_refresh = props.on_refresh;
+    let on_toggle = props.on_toggle;
+
+    match props.data.as_ref() {
         Some(Ok(resp)) => {
             let components = resp.components.clone();
             rsx! {
@@ -58,7 +81,7 @@ pub fn ComponentsPanel(props: ComponentsPanelProps) -> Element {
                         h3 { class: "text-white font-bold text-sm", "Components ({components.len()})" }
                         button {
                             class: "text-gray-400 hover:text-white text-xs",
-                            onclick: move |_| fetch.call(()),
+                            onclick: move |_| on_refresh.call(()),
                             "↻"
                         }
                     }
@@ -86,13 +109,13 @@ pub fn ComponentsPanel(props: ComponentsPanelProps) -> Element {
 }
 
 #[derive(PartialEq, Clone, Props)]
-struct ComponentRowProps {
-    component: ComponentInfo,
-    on_toggle: Callback<u32>,
+pub struct ComponentRowProps {
+    pub component: ComponentInfo,
+    pub on_toggle: Callback<u32>,
 }
 
 #[component]
-fn ComponentRow(props: ComponentRowProps) -> Element {
+pub fn ComponentRow(props: ComponentRowProps) -> Element {
     let index = props.component.index;
     let enabled = props.component.enabled;
     let on_toggle = props.on_toggle;
