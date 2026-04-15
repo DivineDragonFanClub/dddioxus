@@ -117,9 +117,11 @@ pub struct StoryPageProps {
 #[component]
 pub fn StoryPage(props: StoryPageProps) -> Element {
     rsx! {
-        div { class: "p-6 space-y-6",
-            h1 { class: "text-xl font-bold text-white border-b border-gray-700 pb-2", "{props.title}" }
-            {props.children}
+        div { class: "h-full overflow-y-auto",
+            div { class: "p-6 space-y-6",
+                h1 { class: "text-xl font-bold text-white border-b border-gray-700 pb-2", "{props.title}" }
+                {props.children}
+            }
         }
     }
 }
