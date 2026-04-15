@@ -12,7 +12,16 @@ use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
 
+#[cfg(any(debug_assertions, feature = "dev"))]
+use dev::{
+    DevComponentRow, DevComponentsListPanel, DevDescsPanel, DevGlobalRow, DevGlobalsPanel,
+    DevIndex, DevProcTreeNode, DevProcsPanel, DevScenePanel, DevSceneTree, DevTransformPanel,
+    DevVec3Editor,
+};
+
 mod components;
+#[cfg(any(debug_assertions, feature = "dev"))]
+pub mod dev;
 mod hooks;
 mod protocol;
 mod rpc;
@@ -28,6 +37,43 @@ pub enum Route {
         Globals {},
         #[route("/procs")]
         Procs {},
+
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev")]
+        DevIndex {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/vec3-editor")]
+        DevVec3Editor {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/scene-tree")]
+        DevSceneTree {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/scene-panel")]
+        DevScenePanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/global-row")]
+        DevGlobalRow {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/globals-panel")]
+        DevGlobalsPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/component-row")]
+        DevComponentRow {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/components-list-panel")]
+        DevComponentsListPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/transform-panel")]
+        DevTransformPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/proc-tree-node")]
+        DevProcTreeNode {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/descs-panel")]
+        DevDescsPanel {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/procs-panel")]
+        DevProcsPanel {},
 }
 
 fn main() {
