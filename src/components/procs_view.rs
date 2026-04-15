@@ -27,6 +27,8 @@ pub fn ProcsView() -> Element {
     let mut selected = use_signal(|| None::<Selection>);
     let mut panel_width = use_signal(|| PANEL_DEFAULT_WIDTH);
     let mut drag_state = use_signal(|| None::<DragState>);
+    let mut descs_data = use_signal(|| None::<Result<GetProcDescsResponse, String>>);
+    let mut last_descs_key = use_signal(String::new);
 
     let mut fetch = move || {
         if loading() { return; }
@@ -41,6 +43,29 @@ pub fn ProcsView() -> Element {
     if !mounted() {
         mounted.set(true);
         fetch();
+    }
+
+    let current_selected = selected();
+    let current_key = match current_selected.as_ref() {
+        Some(sel) => format!("{}/{:?}", sel.root, sel.path),
+        None => String::new(),
+    };
+    if last_descs_key() != current_key {
+        last_descs_key.set(current_key);
+        match current_selected.as_ref() {
+            Some(sel) => {
+                let req = GetProcDescsRequest {
+                    root: sel.root.clone(),
+                    path: sel.path.clone(),
+                };
+                descs_data.set(None);
+                spawn(async move {
+                    let result = rpc::call(&conn, req).await;
+                    descs_data.set(Some(result));
+                });
+            }
+            None => descs_data.set(None),
+        }
     }
 
     let on_select = use_callback(move |sel: Selection| selected.set(Some(sel)));
@@ -103,7 +128,11 @@ pub fn ProcsView() -> Element {
                             }));
                         },
                     }
-                    DescsPanel { selection: sel, width: panel_width() }
+                    DescsPanel {
+                        selection: sel,
+                        width: panel_width(),
+                        data: descs_data(),
+                    }
                 }
             }
             // Transparent overlay grabs every mouse event while a drag is in progress so
@@ -238,27 +267,11 @@ fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
 struct DescsPanelProps {
     selection: Selection,
     width: f64,
+    data: Option<Result<GetProcDescsResponse, String>>,
 }
 
 #[component]
 fn DescsPanel(props: DescsPanelProps) -> Element {
-    let conn = use_context::<Signal<ConnectionState>>();
-    let mut data = use_signal(|| None::<Result<GetProcDescsResponse, String>>);
-    let mut last_key = use_signal(String::new);
-
-    let key = format!("{}/{:?}", props.selection.root, props.selection.path);
-    if last_key() != key {
-        last_key.set(key);
-        let req = GetProcDescsRequest {
-            root: props.selection.root.clone(),
-            path: props.selection.path.clone(),
-        };
-        spawn(async move {
-            let result = rpc::call(&conn, req).await;
-            data.set(Some(result));
-        });
-    }
-
     let width = props.width as i32;
 
     rsx! {
@@ -272,7 +285,7 @@ fn DescsPanel(props: DescsPanelProps) -> Element {
                 }
             }
             div { class: "p-3",
-                match data().as_ref() {
+                match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let descs = resp.descs.clone();
                         let current = resp.desc_index;

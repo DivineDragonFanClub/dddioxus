@@ -29,16 +29,22 @@ pub fn GlobalsView() -> Element {
         fetch();
     }
 
-    let apply = use_callback(move |updated: GlobalVariable| {
-        data.with_mut(|slot| {
-            if let Some(Ok(resp)) = slot.as_mut() {
-                if let Some(row) = resp.variables.iter_mut().find(|v| v.name == updated.name) {
-                    row.kind = updated.kind;
-                    row.value = updated.value;
-                }
+    let on_commit = move |req: SetGlobalVariableRequest| {
+        spawn(async move {
+            if let Ok(resp) = rpc::call(&conn, req).await {
+                data.with_mut(|slot| {
+                    if let Some(Ok(response)) = slot.as_mut() {
+                        if let Some(row) =
+                            response.variables.iter_mut().find(|v| v.name == resp.name)
+                        {
+                            row.kind = resp.kind;
+                            row.value = resp.value;
+                        }
+                    }
+                });
             }
         });
-    });
+    };
 
     rsx! {
         div { class: "flex flex-col h-full",
@@ -76,7 +82,7 @@ pub fn GlobalsView() -> Element {
                                 GlobalRow {
                                     key: "{v.name}",
                                     variable: v,
-                                    on_change: move |updated| apply.call(updated),
+                                    on_commit: on_commit,
                                 }
                             }
                             if shown == 0 {
@@ -99,12 +105,11 @@ pub fn GlobalsView() -> Element {
 #[derive(PartialEq, Clone, Props)]
 struct GlobalRowProps {
     variable: GlobalVariable,
-    on_change: EventHandler<GlobalVariable>,
+    on_commit: EventHandler<SetGlobalVariableRequest>,
 }
 
 #[component]
 fn GlobalRow(props: GlobalRowProps) -> Element {
-    let conn = use_context::<Signal<ConnectionState>>();
     let name = props.variable.name.clone();
     let kind = props.variable.kind.clone();
     let mut editing = use_signal(|| false);
@@ -113,26 +118,17 @@ fn GlobalRow(props: GlobalRowProps) -> Element {
     let commit = {
         let name = name.clone();
         let kind = kind.clone();
-        let on_change = props.on_change;
+        let on_commit = props.on_commit;
         let current = props.variable.value.clone();
         move || {
             editing.set(false);
             if draft() == current {
                 return;
             }
-            let req = SetGlobalVariableRequest {
+            on_commit.call(SetGlobalVariableRequest {
                 name: name.clone(),
                 kind: kind.clone(),
                 value: draft(),
-            };
-            spawn(async move {
-                if let Ok(resp) = rpc::call(&conn, req).await {
-                    on_change.call(GlobalVariable {
-                        name: resp.name,
-                        kind: resp.kind,
-                        value: resp.value,
-                    });
-                }
             });
         }
     };

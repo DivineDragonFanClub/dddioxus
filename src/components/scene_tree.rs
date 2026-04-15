@@ -1,15 +1,13 @@
 use dioxus::prelude::*;
 
-use crate::hooks::connection::ConnectionState;
-use crate::protocol::{SceneInfo, SceneNode, ToggleGameObjectRequest};
-use crate::rpc;
+use crate::protocol::{SceneInfo, SceneNode};
 
 #[derive(PartialEq, Clone, Props)]
 pub struct SceneTreeProps {
-    scenes: Vec<SceneInfo>,
-    selected_path: Option<String>,
-    on_select: EventHandler<String>,
-    on_refresh: EventHandler,
+    pub scenes: Vec<SceneInfo>,
+    pub selected_path: Option<String>,
+    pub on_select: EventHandler<String>,
+    pub on_toggle_active: EventHandler<String>,
 }
 
 fn node_matches(node: &SceneNode, query: &str) -> bool {
@@ -69,7 +67,7 @@ pub fn SceneTree(props: SceneTreeProps) -> Element {
                                         filter: if searching { Some(query.clone()) } else { None },
                                         selected_path: props.selected_path.clone(),
                                         on_select: props.on_select,
-                                        on_refresh: props.on_refresh,
+                                        on_toggle_active: props.on_toggle_active,
                                     }
                                 }
                                 if searching && filtered.is_empty() {
@@ -90,14 +88,13 @@ struct TreeNodeProps {
     filter: Option<String>,
     selected_path: Option<String>,
     on_select: EventHandler<String>,
-    on_refresh: EventHandler,
+    on_toggle_active: EventHandler<String>,
 }
 
 #[component]
 fn TreeNode(props: TreeNodeProps) -> Element {
     let has_children = !props.node.children.is_empty();
     let mut expanded = use_signal(|| props.filter.is_some());
-    let conn = use_context::<Signal<ConnectionState>>();
 
     let toggle_expand = move |_| {
         if has_children {
@@ -105,16 +102,11 @@ fn TreeNode(props: TreeNodeProps) -> Element {
         }
     };
 
-    let path = props.node.path.clone();
-    let on_refresh = props.on_refresh;
+    let toggle_path = props.node.path.clone();
+    let on_toggle_active = props.on_toggle_active;
     let toggle_active = move |evt: Event<MouseData>| {
         evt.stop_propagation();
-        let path = path.clone();
-        spawn(async move {
-            if rpc::call(&conn, ToggleGameObjectRequest { path }).await.is_ok() {
-                on_refresh.call(());
-            }
-        });
+        on_toggle_active.call(toggle_path.clone());
     };
 
     let icon = if !has_children {
@@ -187,7 +179,7 @@ fn TreeNode(props: TreeNodeProps) -> Element {
                             filter: props.filter.clone(),
                             selected_path: props.selected_path.clone(),
                             on_select: props.on_select,
-                            on_refresh: props.on_refresh,
+                            on_toggle_active: props.on_toggle_active,
                         }
                     }
                 }

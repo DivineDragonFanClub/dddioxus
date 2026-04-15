@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use super::inspector::Inspector;
 use super::scene_tree::SceneTree;
 use crate::hooks::connection::ConnectionState;
-use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse};
+use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
 
 #[component]
@@ -29,6 +29,15 @@ pub fn SceneView() -> Element {
         fetch();
     }
 
+    let toggle_active = move |path: String| {
+        spawn(async move {
+            if rpc::call(&conn, ToggleGameObjectRequest { path }).await.is_ok() {
+                let result = rpc::call(&conn, GetSceneNameRequest).await;
+                data.set(Some(result));
+            }
+        });
+    };
+
     match data().as_ref() {
         Some(Ok(resp)) => rsx! {
             div { class: "flex flex-col h-full",
@@ -49,7 +58,7 @@ pub fn SceneView() -> Element {
                             scenes: resp.scenes.clone(),
                             selected_path: selected_path(),
                             on_select: move |path: String| selected_path.set(Some(path)),
-                            on_refresh: move |_| fetch(),
+                            on_toggle_active: toggle_active,
                         }
                     }
                     if let Some(path) = selected_path() {

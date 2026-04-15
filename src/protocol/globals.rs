@@ -14,7 +14,7 @@ pub struct GlobalVariable {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetGlobalVariablesRequest;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetGlobalVariablesResponse {
     pub variables: Vec<GlobalVariable>,
 }
@@ -31,7 +31,7 @@ pub struct SetGlobalVariableRequest {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetGlobalVariableResponse {
     pub name: String,
     pub kind: String,
