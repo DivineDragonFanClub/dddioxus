@@ -35,6 +35,11 @@ pub fn is_dev_route(route: &Route) -> bool {
 pub fn DevSidebar() -> Element {
     rsx! {
         nav { class: "w-52 shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col py-2 overflow-auto",
+            Link {
+                to: Route::Scene {},
+                class: "block px-4 py-2 text-xs text-gray-400 hover:text-indigo-400 border-b border-gray-800 mb-2",
+                "← Back to app"
+            }
             SidebarHeader { label: "Stories" }
             DevNavItem { route: Route::DevIndex {}, label: "Index" }
             SidebarHeader { label: "Leaves" }
