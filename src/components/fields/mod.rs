@@ -94,9 +94,16 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
 
     rsx! {
         if !props.label.is_empty() {
+            // Padding + negative margin (with content-box sizing so
+            // padding genuinely adds to the hitbox) gives the axis
+            // letter a generous ~28x24 click target while the outer
+            // layout still treats it as a 12px-wide letter. The drag
+            // now grabs reliably even if the cursor isn't pixel-
+            // perfectly on top of the glyph.
             span {
                 class: "{props.color} text-xs font-bold w-3 select-none",
-                style: "cursor: ew-resize",
+                style: "cursor: ew-resize; box-sizing: content-box; padding: 6px 8px; margin: -6px -8px; text-align: center;",
+                title: "Drag to change · Shift: coarse · Ctrl/⌘: fine",
                 onmousedown: move |e: Event<MouseData>| {
                     // prevent_default stops the browser from starting a
                     // text selection when the user presses on the label —

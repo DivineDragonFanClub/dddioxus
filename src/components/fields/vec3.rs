@@ -118,16 +118,46 @@ pub fn Vec3Editor(props: Vec3EditorProps) -> Element {
                     }
                     pasteable.set(paste_vec3_from_os_clipboard());
                     // Anchor the dropdown to the dots button's bounding
-                    // rect (not the click point) so it always lands in
-                    // the same spot regardless of where the user clicks.
+                    // rect and clamp it inside the viewport. Prefer
+                    // right-of-anchor, flip to left if we'd overflow the
+                    // right edge, shift up if we'd overflow the bottom.
                     if let Some(elem) = dots_ref() {
                         spawn(async move {
-                            if let Ok(rect) = elem.get_client_rect().await {
-                                let left = rect.origin.x + rect.size.width + 4.0;
-                                let top = rect.origin.y;
-                                menu_pos.set((left, top));
-                                menu_open.set(true);
+                            let Ok(rect) = elem.get_client_rect().await else {
+                                return;
+                            };
+                            let mut eval = document::eval(
+                                "dioxus.send([window.innerWidth, window.innerHeight])",
+                            );
+                            let (vw, vh) = eval
+                                .recv::<(f64, f64)>()
+                                .await
+                                .unwrap_or((f64::MAX, f64::MAX));
+
+                            // Estimated menu size — min-width 96 and
+                            // ~2-3 items at ~24px each.
+                            const MENU_W: f64 = 96.0;
+                            const MENU_H: f64 = 72.0;
+                            const GAP: f64 = 4.0;
+
+                            let preferred = rect.origin.x + rect.size.width + GAP;
+                            let left = if preferred + MENU_W <= vw {
+                                preferred
+                            } else {
+                                let flipped = rect.origin.x - MENU_W - GAP;
+                                flipped.max(0.0)
+                            };
+
+                            let mut top = rect.origin.y;
+                            if top + MENU_H > vh {
+                                top = (vh - MENU_H).max(0.0);
                             }
+                            if top < 0.0 {
+                                top = 0.0;
+                            }
+
+                            menu_pos.set((left, top));
+                            menu_open.set(true);
                         });
                     }
                 },
