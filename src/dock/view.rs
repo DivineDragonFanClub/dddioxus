@@ -47,11 +47,17 @@ fn use_floating_spawner() {
     let spawned: Signal<HashSet<Uuid>> = use_signal(HashSet::new);
 
     use_effect(move || {
+        let default_bounds = (
+            100.0,
+            100.0,
+            super::floating::DEFAULT_FLOAT_SIZE.0,
+            super::floating::DEFAULT_FLOAT_SIZE.1,
+        );
         let current: Vec<_> = state
             .read()
             .floating
             .iter()
-            .map(|f| (f.id, f.bounds.unwrap_or((100.0, 100.0, 520.0, 420.0))))
+            .map(|f| (f.id, f.bounds.unwrap_or(default_bounds)))
             .collect();
 
         let mut spawned = spawned;
