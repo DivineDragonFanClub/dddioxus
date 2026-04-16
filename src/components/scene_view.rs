@@ -1,12 +1,13 @@
 use dioxus::prelude::*;
 
-use super::inspector_host::InspectorHost;
 use super::scene_tree::SceneTree;
 use crate::dock::{selectors, DockState};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
 
+/// Scene panel container: fetches the scene tree and handles selection.
+/// Layout (Scene on left, Inspector on right) is owned by the dock tree.
 #[component]
 pub fn SceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
@@ -44,18 +45,15 @@ pub fn SceneView() -> Element {
     let selected_path = selectors::follow_inspector_path(&dock_state.read());
 
     rsx! {
-        div { class: "flex flex-1 h-full",
-            ScenePanel {
-                data: data(),
-                loading: loading(),
-                selected_path: selected_path,
-                on_refresh: move |_| fetch(),
-                on_select: move |path: String| {
-                    selectors::set_follow_inspector_path(&mut dock_state.write(), Some(path));
-                },
-                on_toggle_active: toggle_active,
-            }
-            InspectorHost {}
+        ScenePanel {
+            data: data(),
+            loading: loading(),
+            selected_path: selected_path,
+            on_refresh: move |_| fetch(),
+            on_select: move |path: String| {
+                selectors::set_follow_inspector_path(&mut dock_state.write(), Some(path));
+            },
+            on_toggle_active: toggle_active,
         }
     }
 }

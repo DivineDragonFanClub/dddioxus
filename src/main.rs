@@ -8,11 +8,9 @@ use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
 use components::connection_provider::ConnectionProvider;
-use components::globals_view::GlobalsView;
-use components::procs_view::ProcsView;
-use components::scene_view::SceneView;
 use components::shell::Shell;
 use dock::persistence as dock_persistence;
+use dock::view::DockRoot;
 use dock::DockState;
 use hooks::connection::use_connection;
 
@@ -37,11 +35,7 @@ const TAILWIND: Asset = asset!("/assets/tailwind.css");
 pub enum Route {
     #[layout(Shell)]
         #[route("/")]
-        Scene {},
-        #[route("/globals")]
-        Globals {},
-        #[route("/procs")]
-        Procs {},
+        Workspace {},
 
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev")]
@@ -192,28 +186,10 @@ fn use_inspector_bridge() {
 fn use_inspector_bridge() {}
 
 #[component]
-fn Scene() -> Element {
+fn Workspace() -> Element {
     rsx! {
         ConnectionProvider {
-            SceneView {}
-        }
-    }
-}
-
-#[component]
-fn Globals() -> Element {
-    rsx! {
-        ConnectionProvider {
-            GlobalsView {}
-        }
-    }
-}
-
-#[component]
-fn Procs() -> Element {
-    rsx! {
-        ConnectionProvider {
-            ProcsView {}
+            DockRoot {}
         }
     }
 }

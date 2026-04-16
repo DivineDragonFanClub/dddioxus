@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::dock::{self, DockCommand, DockState, PanelKind};
 use crate::Route;
 
 #[component]
@@ -41,12 +42,84 @@ fn dev_sidebar() -> Element {
 
 #[component]
 fn Sidebar() -> Element {
+    let mut state = use_context::<Signal<DockState>>();
+
+    let open_panel = move |kind: PanelKind| {
+        dock::apply(&mut state.write(), DockCommand::OpenPanel { kind });
+    };
+    let reset_layout = move |_| {
+        dock::apply(&mut state.write(), DockCommand::ResetLayout);
+    };
+
     rsx! {
         nav { class: "w-40 shrink-0 bg-gray-950 border-r border-gray-700 flex flex-col py-2",
-            NavItem { route: Route::Scene {}, label: "Scene" }
-            NavItem { route: Route::Globals {}, label: "Globals" }
-            NavItem { route: Route::Procs {}, label: "Procs" }
-            {dev_nav_item()}
+            PanelButton {
+                label: "Scene",
+                kind: PanelKind::Scene,
+                on_open: open_panel,
+            }
+            PanelButton {
+                label: "Globals",
+                kind: PanelKind::Globals,
+                on_open: open_panel,
+            }
+            PanelButton {
+                label: "Procs",
+                kind: PanelKind::Procs,
+                on_open: open_panel,
+            }
+            PanelButton {
+                label: "Inspector",
+                kind: PanelKind::Inspector,
+                on_open: open_panel,
+            }
+            div { class: "mt-auto pt-2 border-t border-gray-800",
+                button {
+                    class: "block w-full text-left px-4 py-2 text-xs text-gray-500 hover:text-white hover:bg-gray-800",
+                    title: "Reset layout to default",
+                    onclick: reset_layout,
+                    "Reset layout"
+                }
+                {dev_nav_item()}
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Clone, Props)]
+struct PanelButtonProps {
+    label: &'static str,
+    kind: PanelKind,
+    on_open: EventHandler<PanelKind>,
+}
+
+#[component]
+fn PanelButton(props: PanelButtonProps) -> Element {
+    let state = use_context::<Signal<DockState>>();
+    let present = state
+        .read()
+        .bindings
+        .values()
+        .any(|b| b.kind == props.kind);
+    let kind = props.kind;
+    let on_open = props.on_open;
+    let class = if present {
+        "block w-full text-left px-4 py-2 text-sm text-white bg-gray-800 hover:bg-gray-700"
+    } else {
+        "block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
+    };
+    let title = if present {
+        format!("Focus {} panel", props.label)
+    } else {
+        format!("Open {} panel", props.label)
+    };
+
+    rsx! {
+        button {
+            class: "{class}",
+            title: "{title}",
+            onclick: move |_| on_open.call(kind),
+            "{props.label}"
         }
     }
 }
@@ -54,8 +127,10 @@ fn Sidebar() -> Element {
 #[cfg(any(debug_assertions, feature = "dev"))]
 fn dev_nav_item() -> Element {
     rsx! {
-        div { class: "mt-auto pt-2 border-t border-gray-800",
-            NavItem { route: Route::DevIndex {}, label: "UI Storybook" }
+        Link {
+            to: Route::DevIndex {},
+            class: "block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800",
+            "UI Storybook"
         }
     }
 }
@@ -63,25 +138,4 @@ fn dev_nav_item() -> Element {
 #[cfg(not(any(debug_assertions, feature = "dev")))]
 fn dev_nav_item() -> Element {
     rsx! {}
-}
-
-#[derive(PartialEq, Clone, Props)]
-struct NavItemProps {
-    route: Route,
-    label: &'static str,
-}
-
-#[component]
-fn NavItem(props: NavItemProps) -> Element {
-    let current: Route = use_route();
-    let active = std::mem::discriminant(&current) == std::mem::discriminant(&props.route);
-    let class = if active {
-        "block px-4 py-2 text-sm text-white bg-indigo-600"
-    } else {
-        "block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800"
-    };
-
-    rsx! {
-        Link { to: props.route.clone(), class: "{class}", "{props.label}" }
-    }
 }
