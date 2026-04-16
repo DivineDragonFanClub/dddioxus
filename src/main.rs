@@ -2,8 +2,8 @@
 
 extern crate core;
 
-use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
-use dioxus::desktop::{Config, WindowBuilder};
+use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use dioxus::desktop::{use_muda_event_handler, Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
@@ -30,6 +30,11 @@ mod protocol;
 mod rpc;
 
 const TAILWIND: Asset = asset!("/assets/tailwind.css");
+
+/// Menu item id for the Edit → "Reset Layout to Default" entry. Declared
+/// here so `main()` registers it and `App()` listens for it under the same
+/// identifier.
+const MENU_ID_RESET_LAYOUT: &str = "reset-layout";
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
@@ -99,6 +104,8 @@ fn main() {
             &PredefinedMenuItem::paste(None),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::select_all(None),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(MENU_ID_RESET_LAYOUT, "Reset Layout to Default", true, None),
         ])
         .unwrap();
     menu.append(&edit_menu).unwrap();
@@ -115,7 +122,12 @@ fn App() -> Element {
     use_connection();
     // Dock state (lock/pin/floating/splits) persists across route changes and
     // will become the single source of truth for layout in subsequent phases.
-    use_dock_state();
+    let mut dock_state = use_dock_state();
+    use_muda_event_handler(move |evt| {
+        if evt.id() == MENU_ID_RESET_LAYOUT {
+            dock::apply(&mut dock_state.write(), dock::DockCommand::ResetLayout);
+        }
+    });
     // Debug/dev-only: start the dioxus-inspector HTTP bridge so Claude
     // Code (and other MCP-aware tooling) can read the DOM, run JS, etc.
     use_inspector_bridge();
