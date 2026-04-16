@@ -21,8 +21,10 @@ lock, drag-to-split, and ejectable-with-drag-back floating windows.
 - One branch per phase: `dock/phase-0-data-model`, `dock/phase-1-lock-stack`,
   `dock/phase-3-docking`, `dock/phase-4-floating-windows`,
   `dock/phase-5-cross-window-state`.
-- Each branch starts from `master`. Open a PR, merge to master before
-  starting the next phase. Always keep master runnable.
+- **`vec3-improvements` is NOT being merged to master yet.** Phase 0
+  branches off `vec3-improvements`. Each subsequent phase branches
+  off the previous one (chain), so the whole docking line of work
+  stacks on top of `vec3-improvements` until the user says otherwise.
 - Commit between substeps within a phase — don't let a branch grow a
   single giant commit.
 
@@ -33,8 +35,8 @@ review cycles.
 
 ## Current state (as of writing this plan)
 
-Working branch: `vec3-improvements` (4 commits ahead of master) with
-the drag-to-edit Vec3Editor, storybook, manual connect, command-ID
-fix, Scene simulation, etc. All of that should be merged to master
-before Phase 0 begins — Phase 0 branches from a clean post-merge
-master.
+Working branch: `vec3-improvements`, ahead of master with the
+drag-to-edit Vec3Editor, storybook, manual connect, command-ID fix,
+Scene simulation, data-component labels, etc. **Not merged to master
+yet** per user direction — Phase 0 branches directly off
+`vec3-improvements`.

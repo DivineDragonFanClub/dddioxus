@@ -1,6 +1,6 @@
 # Phase 1 — Lock + Vertical Stack
 
-**Branch:** `dock/phase-1-lock-stack` *(from master after Phase 0 merges)*
+**Branch:** `dock/phase-1-lock-stack` *(branches off `dock/phase-0-data-model`; chain continues until the user decides to merge)*
 **Budget:** ~half day
 **Visible change:** inspector header gains lock/pin/close; multiple
 inspectors render stacked in the right column; clicking pin on the
