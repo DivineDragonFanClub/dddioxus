@@ -1,4 +1,6 @@
-use super::model::{Axis, Binding, BindingId, DockNode, DockState, PanelKind};
+use uuid::Uuid;
+
+use super::model::{Axis, Binding, BindingId, DockNode, DockState, FloatingWindow, PanelKind};
 use super::path::{self, DockPath};
 use super::selectors;
 
@@ -55,6 +57,30 @@ pub enum DockCommand {
     OpenPanel { kind: PanelKind },
     /// Throw away the current layout and reinstantiate defaults.
     ResetLayout,
+    /// Pop `binding` out of the main tree into a new floating window with the
+    /// given screen-space bounds (x, y, w, h). Assigns a fresh Uuid that the
+    /// UI uses to spawn and later identify the OS window.
+    EjectToFloating {
+        binding: BindingId,
+        bounds: (f64, f64, f64, f64),
+    },
+    /// User closed a floating window via its × button — move any remaining
+    /// bindings back to the main tree's first leaf and drop the FloatingWindow
+    /// entry.
+    CloseFloating { window: Uuid },
+    /// User dragged a floating window over the main viewport and released over
+    /// a valid drop zone. Equivalent to unpacking the float's bindings into
+    /// the target leaf + removing the FloatingWindow entry.
+    RedockFloating {
+        window: Uuid,
+        target: DockPath,
+        side: DropSide,
+    },
+    /// Persist the floating window's on-screen bounds.
+    UpdateFloatingBounds {
+        window: Uuid,
+        bounds: (f64, f64, f64, f64),
+    },
 }
 
 pub fn apply(state: &mut DockState, cmd: DockCommand) {
@@ -71,6 +97,24 @@ pub fn apply(state: &mut DockState, cmd: DockCommand) {
         DockCommand::OpenPanel { kind } => apply_open_panel(state, kind),
         DockCommand::ResetLayout => {
             *state = DockState::default_layout();
+        }
+        DockCommand::EjectToFloating { binding, bounds } => {
+            apply_eject(state, binding, bounds);
+        }
+        DockCommand::CloseFloating { window } => {
+            apply_close_floating(state, window);
+        }
+        DockCommand::RedockFloating {
+            window,
+            target,
+            side,
+        } => {
+            apply_redock(state, window, &target, side);
+        }
+        DockCommand::UpdateFloatingBounds { window, bounds } => {
+            if let Some(fw) = state.floating.iter_mut().find(|f| f.id == window) {
+                fw.bounds = Some(bounds);
+            }
         }
     }
 
@@ -213,6 +257,67 @@ fn focus_binding(node: &mut DockNode, id: BindingId) {
     }
 }
 
+fn apply_eject(state: &mut DockState, binding: BindingId, bounds: (f64, f64, f64, f64)) {
+    if !state.bindings.contains_key(&binding) {
+        return;
+    }
+    strip_binding_from_tree(&mut state.main_tree, binding);
+    for fw in state.floating.iter_mut() {
+        strip_binding_from_tree(&mut fw.tree, binding);
+    }
+    state.floating.push(FloatingWindow {
+        id: Uuid::new_v4(),
+        tree: DockNode::Leaf {
+            bindings: vec![binding],
+            active: Some(binding),
+        },
+        bounds: Some(bounds),
+    });
+}
+
+fn apply_close_floating(state: &mut DockState, window: Uuid) {
+    let Some(pos) = state.floating.iter().position(|f| f.id == window) else {
+        return;
+    };
+    let fw = state.floating.remove(pos);
+    // Move any bindings that were inside back to the main tree's first leaf.
+    let ids = bindings_in_tree(&fw.tree);
+    for id in ids {
+        append_to_first_leaf(&mut state.main_tree, id);
+    }
+}
+
+fn apply_redock(state: &mut DockState, window: Uuid, target: &[usize], side: DropSide) {
+    let Some(pos) = state.floating.iter().position(|f| f.id == window) else {
+        return;
+    };
+    let fw = state.floating.remove(pos);
+    let ids = bindings_in_tree(&fw.tree);
+    // Drop each binding one by one through the normal pipeline so tab-strip
+    // vs. split behaviour matches the Phase 3 drag.
+    for (i, id) in ids.into_iter().enumerate() {
+        // First binding lands at the requested side; subsequent ones stack
+        // onto that newly-created leaf as center drops to form a tab group.
+        let side = if i == 0 { side } else { DropSide::Center };
+        apply_drop(state, id, target, side);
+    }
+}
+
+fn bindings_in_tree(node: &DockNode) -> Vec<BindingId> {
+    let mut out = vec![];
+    fn walk(node: &DockNode, out: &mut Vec<BindingId>) {
+        match node {
+            DockNode::Leaf { bindings, .. } => out.extend(bindings.iter().copied()),
+            DockNode::Split { first, second, .. } => {
+                walk(first, out);
+                walk(second, out);
+            }
+        }
+    }
+    walk(node, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::model::PanelKind;
@@ -282,6 +387,53 @@ mod tests {
             .bindings
             .values()
             .any(|b| matches!(b.kind, PanelKind::Globals)));
+    }
+
+    #[test]
+    fn eject_moves_binding_to_floating() {
+        let mut state = DockState::default_layout();
+        let pinned = selectors::pin_follow_inspector(&mut state).unwrap();
+        apply(
+            &mut state,
+            DockCommand::EjectToFloating {
+                binding: pinned,
+                bounds: (100.0, 100.0, 400.0, 300.0),
+            },
+        );
+        assert_eq!(state.floating.len(), 1);
+        let fw = &state.floating[0];
+        match &fw.tree {
+            DockNode::Leaf { bindings, .. } => {
+                assert_eq!(bindings, &vec![pinned]);
+            }
+            _ => panic!("expected leaf"),
+        }
+        // Main tree should no longer contain the pinned binding.
+        fn contains(n: &DockNode, id: BindingId) -> bool {
+            match n {
+                DockNode::Leaf { bindings, .. } => bindings.contains(&id),
+                DockNode::Split { first, second, .. } => contains(first, id) || contains(second, id),
+            }
+        }
+        assert!(!contains(&state.main_tree, pinned));
+    }
+
+    #[test]
+    fn close_floating_returns_bindings() {
+        let mut state = DockState::default_layout();
+        let pinned = selectors::pin_follow_inspector(&mut state).unwrap();
+        apply(
+            &mut state,
+            DockCommand::EjectToFloating {
+                binding: pinned,
+                bounds: (0.0, 0.0, 100.0, 100.0),
+            },
+        );
+        let window_id = state.floating[0].id;
+        apply(&mut state, DockCommand::CloseFloating { window: window_id });
+        assert!(state.floating.is_empty());
+        // Binding should still exist and be back in the main tree somewhere.
+        assert!(state.bindings.contains_key(&pinned));
     }
 
     #[test]
