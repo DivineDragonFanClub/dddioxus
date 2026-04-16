@@ -24,6 +24,7 @@ use dev::{
 mod components;
 #[cfg(any(debug_assertions, feature = "dev"))]
 pub mod dev;
+mod dock;
 mod hooks;
 mod protocol;
 mod rpc;
