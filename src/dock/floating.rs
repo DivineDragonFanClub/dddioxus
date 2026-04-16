@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use dioxus::desktop::tao::event::{Event, WindowEvent};
 use dioxus::desktop::{
     use_wry_event_handler, window, Config as WindowConfig, WindowBuilder,
@@ -6,6 +8,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use super::commands::{self, DockCommand};
+use super::drag::{self, DropGhost};
 use super::model::{DockNode, DockState};
 use super::view::DockNodeView;
 
@@ -20,6 +23,7 @@ pub struct FloatingWindowRootProps {
 #[component]
 pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
     let mut state = use_context::<Signal<DockState>>();
+    let mut ghost = use_context::<Signal<Option<DropGhost>>>();
     let window_id = props.window_id;
     let state_read = state.read();
     let Some(fw) = state_read.floating.iter().find(|f| f.id == window_id) else {
@@ -34,7 +38,8 @@ pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
     let title = floating_window_title(&fw.tree, &state_read);
     drop(state_read);
 
-    // Publish `Moved` events so the main window can render a drag-back ghost.
+    // Publish `Moved` events to both the bounds store (for persistence) and
+    // the cross-window ghost signal (for drag-back preview).
     let owned_id = window().id();
     use_wry_event_handler(move |event, _| {
         if let Event::WindowEvent {
@@ -44,21 +49,58 @@ pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
         } = event
         {
             if *wid == owned_id {
-                let new_bounds = {
+                let size = {
                     let guard = state.read();
                     let current = guard.floating.iter().find(|f| f.id == window_id);
                     let (_, _, w, h) = current
                         .and_then(|f| f.bounds)
                         .unwrap_or((0.0, 0.0, 400.0, 300.0));
-                    (pos.x as f64, pos.y as f64, w, h)
+                    (w, h)
                 };
+                let screen_pos = (pos.x as f64, pos.y as f64);
                 commands::apply(
                     &mut state.write(),
                     DockCommand::UpdateFloatingBounds {
                         window: window_id,
-                        bounds: new_bounds,
+                        bounds: (screen_pos.0, screen_pos.1, size.0, size.1),
                     },
                 );
+                ghost.set(Some(DropGhost {
+                    window: window_id,
+                    screen_pos,
+                    size,
+                    last_move: Instant::now(),
+                    dragging: true,
+                }));
+            }
+        }
+    });
+
+    // Debounce the active flag 150 ms after the last `Moved`. The falling
+    // edge of `dragging` is the main window's cue to commit the re-dock.
+    let mut ghost_signal = ghost;
+    use_effect(move || {
+        let snapshot = ghost_signal.read().clone();
+        if let Some(g) = snapshot {
+            if g.window == window_id && g.dragging {
+                let ts = g.last_move;
+                spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    let mut ghost = ghost_signal;
+                    let still_same = ghost
+                        .peek()
+                        .as_ref()
+                        .map(|cur| cur.last_move == ts && cur.dragging)
+                        .unwrap_or(false);
+                    if still_same {
+                        // Flip `dragging` to false; main window's effect
+                        // handles the rest.
+                        let mut cur = ghost.write();
+                        if let Some(g) = cur.as_mut() {
+                            g.dragging = false;
+                        }
+                    }
+                });
             }
         }
     });
@@ -142,3 +184,4 @@ fn first_binding(node: &DockNode) -> Option<super::model::BindingId> {
         DockNode::Split { first, .. } => first_binding(first),
     }
 }
+

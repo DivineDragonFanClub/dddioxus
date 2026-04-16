@@ -123,6 +123,9 @@ fn App() -> Element {
     // Dock state (lock/pin/floating/splits) persists across route changes and
     // will become the single source of truth for layout in subsequent phases.
     let mut dock_state = use_dock_state();
+    // Cross-window ghost signal so floating windows can publish drag positions
+    // and the main window can render the re-dock preview.
+    dock::drag::use_drop_ghost();
     use_muda_event_handler(move |evt| {
         if evt.id() == MENU_ID_RESET_LAYOUT {
             dock::apply(&mut dock_state.write(), dock::DockCommand::ResetLayout);

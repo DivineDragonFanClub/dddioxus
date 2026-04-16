@@ -1,4 +1,7 @@
+use std::time::Instant;
+
 use dioxus::prelude::*;
+use uuid::Uuid;
 
 use super::commands::DropSide;
 use super::model::{BindingId, DockNode, DockState};
@@ -98,6 +101,30 @@ pub fn collect_leaf_paths(state: &DockState) -> Vec<DockPath> {
 /// Provide the drag signal via context. Call once at the DockRoot level.
 pub fn use_drag_state() -> Signal<Option<DragState>> {
     let signal = use_signal(|| None::<DragState>);
+    use_hook(|| provide_context(signal))
+}
+
+/// Sent by a `FloatingWindowRoot` while the user is dragging its title bar —
+/// read by the main window's DragOverlay to render the re-dock ghost preview.
+///
+/// Screen coordinates (not viewport): the main window converts to its own
+/// client space using its `inner_position()`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DropGhost {
+    pub window: Uuid,
+    pub screen_pos: (f64, f64),
+    pub size: (f64, f64),
+    pub last_move: Instant,
+    /// True while the floating window's drag is active; flipped to false by
+    /// the debounce when moves stop for 150 ms. On the falling edge, the
+    /// main window commits the re-dock.
+    pub dragging: bool,
+}
+
+/// Provide the ghost signal at DockRoot; floating windows get it via
+/// `with_root_context` on their VirtualDom.
+pub fn use_drop_ghost() -> Signal<Option<DropGhost>> {
+    let signal = use_signal(|| None::<DropGhost>);
     use_hook(|| provide_context(signal))
 }
 

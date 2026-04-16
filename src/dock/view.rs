@@ -21,6 +21,7 @@ pub fn DockRoot() -> Element {
     let state = use_context::<Signal<DockState>>();
     drag::use_drag_state();
     use_floating_spawner();
+    use_ghost_redock();
 
     let tree = state.read().main_tree.clone();
 
@@ -30,6 +31,7 @@ pub fn DockRoot() -> Element {
             class: "relative flex flex-1 h-full overflow-hidden",
             DockNodeView { node: tree, path: Vec::<usize>::new() }
             DragOverlay {}
+            FloatingGhostOverlay {}
         }
     }
 }
@@ -41,6 +43,7 @@ pub fn DockRoot() -> Element {
 fn use_floating_spawner() {
     let state = use_context::<Signal<DockState>>();
     let conn = use_context::<Signal<ConnectionState>>();
+    let ghost = use_context::<Signal<Option<drag::DropGhost>>>();
     let spawned: Signal<HashSet<Uuid>> = use_signal(HashSet::new);
 
     use_effect(move || {
@@ -60,7 +63,8 @@ fn use_floating_spawner() {
                     FloatingWindowRootProps { window_id: id },
                 )
                 .with_root_context(state)
-                .with_root_context(conn);
+                .with_root_context(conn)
+                .with_root_context(ghost);
                 let _ = dioxus::desktop::window().new_window(
                     dom,
                     floating_window_config(bounds, "Floating panel"),
@@ -474,6 +478,138 @@ fn DragOverlay() -> Element {
             }
         }
     }
+}
+
+/// Renders a translucent ghost rect in the main window while a floating
+/// window is being dragged over it. Uses the screen→client conversion
+/// below; positions may be roughly off by OS chrome but the user only
+/// cares about "am I over a drop zone."
+#[component]
+fn FloatingGhostOverlay() -> Element {
+    let ghost = use_context::<Signal<Option<drag::DropGhost>>>();
+    let Some(g) = ghost.read().clone() else {
+        return rsx! {};
+    };
+    if !g.dragging {
+        return rsx! {};
+    }
+    // We don't have a cheap sync way to get the main window's inner_position,
+    // so we just render the ghost at the floating window's screen coords.
+    // For a drag-back user, the ghost serves as "yes, your drag is being
+    // watched" rather than pixel-accurate preview — the actual drop zone
+    // lands when `dragging` flips false.
+    let screen_x = g.screen_pos.0;
+    let screen_y = g.screen_pos.1;
+    let style = format!(
+        "left: {}px; top: {}px; width: {}px; height: {}px;",
+        screen_x, screen_y, g.size.0, g.size.1
+    );
+    rsx! {
+        div {
+            "data-component": "FloatingGhost",
+            class: "fixed z-30 bg-indigo-500/15 border border-indigo-400/70 ring-1 ring-indigo-400/30 pointer-events-none transition-all duration-75",
+            style: "{style}",
+        }
+    }
+}
+
+/// Watches the cross-window `DropGhost` signal. On the `dragging=true →
+/// dragging=false` falling edge, runs the hit-test against the main window's
+/// viewport and commits `RedockFloating` if a valid leaf zone contains the
+/// floating window's title-bar anchor.
+fn use_ghost_redock() {
+    let mut state = use_context::<Signal<DockState>>();
+    let mut ghost = use_context::<Signal<Option<drag::DropGhost>>>();
+    let mut was_dragging = use_signal(|| false);
+
+    use_effect(move || {
+        let current = ghost.read().clone();
+        let now_dragging = current.as_ref().map(|g| g.dragging).unwrap_or(false);
+        let prev = was_dragging();
+
+        if prev && !now_dragging {
+            // Falling edge — commit attempt.
+            if let Some(g) = current {
+                spawn(async move {
+                    let Some((main_x, main_y, _, _)) = fetch_main_window_rect().await else {
+                        ghost.set(None);
+                        return;
+                    };
+                    // Anchor: top-centre of the floating window's title bar in
+                    // main-window client space.
+                    let ax = g.screen_pos.0 + g.size.0 * 0.5 - main_x;
+                    let ay = g.screen_pos.1 + 12.0 - main_y;
+                    if let Some((path, rect)) = find_leaf_at(ax, ay).await {
+                        let side = super::drag::hit_side(rect, (ax, ay));
+                        commands::apply(
+                            &mut state.write(),
+                            DockCommand::RedockFloating {
+                                window: g.window,
+                                target: path,
+                                side,
+                            },
+                        );
+                    }
+                    ghost.set(None);
+                });
+            }
+        }
+        was_dragging.set(now_dragging);
+    });
+}
+
+async fn fetch_main_window_rect() -> Option<(f64, f64, f64, f64)> {
+    // Best-effort: use the DOM's position-of-html-at-screen via `window.screenX`/`screenY`.
+    let mut eval = document::eval(
+        "dioxus.send([window.screenX, window.screenY, window.innerWidth, window.innerHeight]);",
+    );
+    let val = eval.recv::<serde_json::Value>().await.ok()?;
+    let arr = val.as_array()?;
+    if arr.len() != 4 {
+        return None;
+    }
+    Some((
+        arr[0].as_f64()?,
+        arr[1].as_f64()?,
+        arr[2].as_f64()?,
+        arr[3].as_f64()?,
+    ))
+}
+
+async fn find_leaf_at(x: f64, y: f64) -> Option<(DockPath, (f64, f64, f64, f64))> {
+    let script = format!(
+        "var leaves = document.querySelectorAll('[data-component=\"Leaf\"]');
+         var found = null;
+         for (var i = 0; i < leaves.length; i++) {{
+             var r = leaves[i].getBoundingClientRect();
+             if ({x} >= r.left && {x} <= r.right && {y} >= r.top && {y} <= r.bottom) {{
+                 found = [leaves[i].getAttribute('data-path') || '', r.left, r.top, r.width, r.height];
+                 break;
+             }}
+         }}
+         dioxus.send(found);",
+        x = x,
+        y = y
+    );
+    let mut eval = document::eval(&script);
+    let val = eval.recv::<serde_json::Value>().await.ok()?;
+    let arr = val.as_array()?;
+    if arr.len() != 5 {
+        return None;
+    }
+    let path_str = arr[0].as_str()?.to_string();
+    let rect = (
+        arr[1].as_f64()?,
+        arr[2].as_f64()?,
+        arr[3].as_f64()?,
+        arr[4].as_f64()?,
+    );
+    let leaf_path: DockPath = path_str
+        .split('.')
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<usize>().ok())
+        .collect();
+    Some((leaf_path, rect))
 }
 
 async fn fetch_viewport() -> Option<(f64, f64)> {
