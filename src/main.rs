@@ -12,6 +12,7 @@ use components::globals_view::GlobalsView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
+use dock::{persistence as dock_persistence, DockState};
 use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]
@@ -117,6 +118,9 @@ fn App() -> Element {
     // Establish the connection signal once at the app root so it persists
     // across route changes and is available to any descendant via context.
     use_connection();
+    // Dock state (lock/pin/floating/splits) persists across route changes and
+    // will become the single source of truth for layout in subsequent phases.
+    use_dock_state();
     // Debug/dev-only: start the dioxus-inspector HTTP bridge so Claude
     // Code (and other MCP-aware tooling) can read the DOM, run JS, etc.
     use_inspector_bridge();
@@ -128,6 +132,40 @@ fn App() -> Element {
             Router::<Route> {}
         }
     }
+}
+
+/// Load the persisted dock state (or fall back to the default layout),
+/// provide it via context, and spawn a debounced autosaver. Any change
+/// to `DockState` queues a 250 ms write to `~/.dddioxus_layout.json`;
+/// rapid mutations coalesce into a single disk write.
+fn use_dock_state() -> Signal<DockState> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    let initial = dock_persistence::load().unwrap_or_else(DockState::default_layout);
+    let state = use_signal(|| initial);
+    use_hook(|| provide_context(state));
+
+    // Shared monotonic counter. Each effect run bumps it; the async timer
+    // captures its own snapshot and only saves if still current on wake.
+    let version: Arc<AtomicU64> = use_hook(|| Arc::new(AtomicU64::new(0)));
+
+    use_effect(move || {
+        // Subscribe to any field of the dock state.
+        let _ = state.read();
+        let my_version = version.fetch_add(1, Ordering::SeqCst) + 1;
+        let version = version.clone();
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if version.load(Ordering::SeqCst) != my_version {
+                return;
+            }
+            let snapshot = state.peek().clone();
+            tokio::task::spawn_blocking(move || dock_persistence::save(&snapshot));
+        });
+    });
+
+    state
 }
 
 /// Start the dioxus-inspector HTTP bridge on port 9999. Only active
