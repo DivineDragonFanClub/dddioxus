@@ -74,7 +74,9 @@ pub fn TransformPanel(props: TransformPanelProps) -> Element {
             let p_scale = tf.path.clone();
 
             rsx! {
-                div { class: "p-3 bg-gray-900 border-t border-gray-700 font-mono text-xs",
+                div {
+                    "data-component": "TransformPanel",
+                    class: "p-3 bg-gray-900 border-t border-gray-700 font-mono text-xs",
                     div { class: "flex items-center justify-between mb-2",
                         h3 { class: "text-white font-bold text-sm", "Transform" }
                         button {

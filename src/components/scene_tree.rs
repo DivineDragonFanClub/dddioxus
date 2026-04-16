@@ -30,7 +30,9 @@ pub fn SceneTree(props: SceneTreeProps) -> Element {
     let total: usize = props.scenes.iter().map(|s| count_nodes(&s.objects)).sum();
 
     rsx! {
-        div { class: "p-4 font-mono text-sm",
+        div {
+            "data-component": "SceneTree",
+            class: "p-4 font-mono text-sm",
             div { class: "flex items-center gap-3 mb-3",
                 span { class: "text-gray-500 text-xs",
                     "{props.scenes.len()} scene(s), {total} nodes"

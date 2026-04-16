@@ -56,7 +56,9 @@ pub fn Vec3Editor(props: Vec3EditorProps) -> Element {
     let can_paste = pasteable.read().is_some();
 
     rsx! {
-        div { class: "flex items-center gap-2 mb-1",
+        div {
+            "data-component": "Vec3Editor",
+            class: "flex items-center gap-2 mb-1",
             span { class: "text-gray-400 w-16", "{props.label}" }
             DragFloat {
                 label: "X",

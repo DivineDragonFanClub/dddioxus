@@ -83,7 +83,9 @@ pub fn ScenePanel(props: ScenePanelProps) -> Element {
     let on_refresh = props.on_refresh;
 
     rsx! {
-        div { class: "flex flex-col flex-1 overflow-hidden",
+        div {
+            "data-component": "ScenePanel",
+            class: "flex flex-col flex-1 overflow-hidden",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
                 button {
                     class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
