@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod drag;
+pub mod floating;
 pub mod model;
 pub mod path;
 pub mod persistence;
