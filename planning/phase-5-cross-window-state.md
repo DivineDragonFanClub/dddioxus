@@ -5,6 +5,18 @@
 **Visible change:** state changes in any window (main or floating)
 propagate to all other windows immediately. No more stale reads.
 
+> **Note (2026-04-16):** the `Arc<RwLock<DockState>>` + `broadcast::Sender`
+> design described below turned out to be unnecessary. Dioxus 0.7's
+> signals cross `VirtualDom` boundaries when provided via
+> `VirtualDom::with_root_context`: writes in a secondary window's VDom
+> trigger re-renders in the main window's subscribed scopes automatically.
+> Phase 4 depended on this working (the floating window's `Moved` handler
+> writes to a `ghost` signal that the main window reads), and verified it.
+> Phase 5 therefore reduces to **formalizing** the cross-window sharing
+> pattern (see `src/dock/shared.rs`) rather than introducing a second
+> layer of synchronization. The original plan below is preserved for
+> context on the assumption it was written under.
+
 ## Goal
 
 Formalize multi-window state sharing so `DockState`, `ConnectionState`,

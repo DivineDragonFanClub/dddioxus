@@ -9,12 +9,12 @@ use super::drag::{self, DragState, Hover};
 use super::floating::{floating_window_config, FloatingWindowRoot, FloatingWindowRootProps};
 use super::model::{Axis, BindingId, DockNode, DockState, PanelKind};
 use super::path::DockPath;
+use super::shared::SharedContexts;
 use super::splitter::Splitter;
 use crate::components::globals_view::GlobalsView;
 use crate::components::inspector_host::InspectorFrame;
 use crate::components::procs_view::ProcsView;
 use crate::components::scene_view::SceneView;
-use crate::hooks::connection::ConnectionState;
 
 #[component]
 pub fn DockRoot() -> Element {
@@ -41,9 +41,7 @@ pub fn DockRoot() -> Element {
 /// responsible for closing it when the entry disappears — we don't track
 /// handles here on purpose.
 fn use_floating_spawner() {
-    let state = use_context::<Signal<DockState>>();
-    let conn = use_context::<Signal<ConnectionState>>();
-    let ghost = use_context::<Signal<Option<drag::DropGhost>>>();
+    let ctx = SharedContexts::from_context();
     let spawned: Signal<HashSet<Uuid>> = use_signal(HashSet::new);
 
     use_effect(move || {
@@ -53,7 +51,8 @@ fn use_floating_spawner() {
             super::floating::DEFAULT_FLOAT_SIZE.0,
             super::floating::DEFAULT_FLOAT_SIZE.1,
         );
-        let current: Vec<_> = state
+        let current: Vec<_> = ctx
+            .state
             .read()
             .floating
             .iter()
@@ -64,24 +63,19 @@ fn use_floating_spawner() {
         let mut already = spawned.write();
         for (id, bounds) in current {
             if already.insert(id) {
-                let dom = VirtualDom::new_with_props(
+                let dom = ctx.inject(VirtualDom::new_with_props(
                     FloatingWindowRoot,
                     FloatingWindowRootProps { window_id: id },
-                )
-                .with_root_context(state)
-                .with_root_context(conn)
-                .with_root_context(ghost);
-                let _ = dioxus::desktop::window().new_window(
-                    dom,
-                    floating_window_config(bounds, "Floating panel"),
-                );
+                ));
+                let _ = dioxus::desktop::window()
+                    .new_window(dom, floating_window_config(bounds, "Floating panel"));
             }
         }
 
         // Drop entries from `spawned` once DockState no longer lists them
         // — keeps the set tidy and means a re-eject of the same Uuid (not
         // that we currently do that) would be spawned again.
-        let alive: HashSet<Uuid> = state.read().floating.iter().map(|f| f.id).collect();
+        let alive: HashSet<Uuid> = ctx.state.read().floating.iter().map(|f| f.id).collect();
         already.retain(|id| alive.contains(id));
     });
 }

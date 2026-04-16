@@ -5,6 +5,7 @@ pub mod model;
 pub mod path;
 pub mod persistence;
 pub mod selectors;
+pub mod shared;
 pub mod splitter;
 pub mod view;
 
