@@ -2,7 +2,7 @@ pub mod components_panel;
 pub mod connection_provider;
 pub mod fields;
 pub mod globals_view;
-pub mod inspector;
+pub mod inspector_host;
 pub mod procs_view;
 pub mod scene_tree;
 pub mod scene_view;
