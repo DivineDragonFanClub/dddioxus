@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod drag;
 pub mod model;
 pub mod path;
 pub mod persistence;
