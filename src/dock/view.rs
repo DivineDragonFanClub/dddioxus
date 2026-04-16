@@ -480,34 +480,56 @@ fn DragOverlay() -> Element {
     }
 }
 
-/// Renders a translucent ghost rect in the main window while a floating
-/// window is being dragged over it. Uses the screen→client conversion
-/// below; positions may be roughly off by OS chrome but the user only
-/// cares about "am I over a drop zone."
+/// Translucent drop-zone preview that appears under the anchor of a
+/// dragging floating window. Re-computes on every ghost update: fetches
+/// the main window's `screenX`/`screenY` asynchronously to convert the
+/// floating window's screen coords into main-window client space, then
+/// hit-tests against the live Leaves for a precise drop-zone preview.
 #[component]
 fn FloatingGhostOverlay() -> Element {
     let ghost = use_context::<Signal<Option<drag::DropGhost>>>();
-    let Some(g) = ghost.read().clone() else {
+    let mut preview = use_signal(|| None::<(f64, f64, f64, f64)>);
+
+    // On each ghost update, async-resolve the hovered leaf + drop zone and
+    // cache its preview rect in main-window client space.
+    use_effect(move || {
+        let current = ghost.read().clone();
+        let Some(g) = current else {
+            preview.set(None);
+            return;
+        };
+        if !g.dragging {
+            preview.set(None);
+            return;
+        }
+        let anchor_screen_x = g.screen_pos.0 + g.size.0 * 0.5;
+        let anchor_screen_y = g.screen_pos.1 + 12.0;
+        spawn(async move {
+            let Some((main_x, main_y, _, _)) = fetch_main_window_rect().await else {
+                return;
+            };
+            let ax = anchor_screen_x - main_x;
+            let ay = anchor_screen_y - main_y;
+            if let Some((_, rect)) = find_leaf_at(ax, ay).await {
+                let side = super::drag::hit_side(rect, (ax, ay));
+                preview.set(Some(super::drag::preview_rect(rect, side)));
+            } else {
+                preview.set(None);
+            }
+        });
+    });
+
+    let Some((px, py, pw, ph)) = preview() else {
         return rsx! {};
     };
-    if !g.dragging {
-        return rsx! {};
-    }
-    // We don't have a cheap sync way to get the main window's inner_position,
-    // so we just render the ghost at the floating window's screen coords.
-    // For a drag-back user, the ghost serves as "yes, your drag is being
-    // watched" rather than pixel-accurate preview — the actual drop zone
-    // lands when `dragging` flips false.
-    let screen_x = g.screen_pos.0;
-    let screen_y = g.screen_pos.1;
     let style = format!(
         "left: {}px; top: {}px; width: {}px; height: {}px;",
-        screen_x, screen_y, g.size.0, g.size.1
+        px, py, pw, ph
     );
     rsx! {
         div {
             "data-component": "FloatingGhost",
-            class: "fixed z-30 bg-indigo-500/15 border border-indigo-400/70 ring-1 ring-indigo-400/30 pointer-events-none transition-all duration-75",
+            class: "absolute bg-indigo-500/25 border border-indigo-400/90 ring-1 ring-indigo-400/40 pointer-events-none transition-all duration-75",
             style: "{style}",
         }
     }
