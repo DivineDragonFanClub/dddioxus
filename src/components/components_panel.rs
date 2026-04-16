@@ -76,7 +76,9 @@ pub fn ComponentsListPanel(props: ComponentsListPanelProps) -> Element {
         Some(Ok(resp)) => {
             let components = resp.components.clone();
             rsx! {
-                div { class: "p-3 border-t border-gray-700 font-mono text-xs",
+                div {
+                    "data-component": "ComponentsListPanel",
+                    class: "p-3 border-t border-gray-700 font-mono text-xs",
                     div { class: "flex items-center justify-between mb-2",
                         h3 { class: "text-white font-bold text-sm", "Components ({components.len()})" }
                         button {
