@@ -3,6 +3,7 @@ pub mod model;
 pub mod path;
 pub mod persistence;
 pub mod selectors;
+pub mod splitter;
 pub mod view;
 
 pub use commands::{apply, DockCommand, DropSide};

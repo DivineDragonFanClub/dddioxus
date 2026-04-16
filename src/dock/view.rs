@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use super::model::{Axis, BindingId, DockNode, DockState, PanelKind};
 use super::path::DockPath;
+use super::splitter::Splitter;
 use crate::components::globals_view::GlobalsView;
 use crate::components::inspector_host::InspectorFrame;
 use crate::components::procs_view::ProcsView;
@@ -96,16 +97,7 @@ pub fn SplitView(props: SplitViewProps) -> Element {
                 style: "{first_style}",
                 DockNodeView { node: props.first, path: props.first_path }
             }
-            // Splitter placeholder — Phase 3 step 3 wires drag here.
-            div {
-                "data-component": "Splitter",
-                class: if horizontal {
-                    "w-[3px] bg-gray-800 hover:bg-indigo-500 transition-colors shrink-0"
-                } else {
-                    "h-[3px] bg-gray-800 hover:bg-indigo-500 transition-colors shrink-0"
-                },
-                style: if horizontal { "cursor: ew-resize" } else { "cursor: ns-resize" },
-            }
+            Splitter { path: props.path.clone(), axis: props.dir }
             div {
                 class: "relative flex overflow-hidden",
                 style: "{second_style}",
