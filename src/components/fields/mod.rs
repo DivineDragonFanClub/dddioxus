@@ -6,6 +6,7 @@
 //! an OS-clipboard copy/paste menu.
 
 use dioxus::prelude::*;
+use dioxus_elements::input_data::MouseButton;
 
 pub mod vec3;
 pub use vec3::Vec3Editor;
@@ -97,6 +98,11 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
                 class: "{props.color} text-xs font-bold w-3 select-none",
                 style: "cursor: ew-resize",
                 onmousedown: move |e: Event<MouseData>| {
+                    // prevent_default stops the browser from starting a
+                    // text selection when the user presses on the label —
+                    // otherwise the drag highlights every element the
+                    // cursor moves across.
+                    e.prevent_default();
                     e.stop_propagation();
                     let start = text().parse::<f32>().unwrap_or(fallback);
                     drag_state.set(Some((e.client_coordinates().x, start)));
@@ -115,6 +121,13 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
                 class: "fixed inset-0 z-50",
                 style: "cursor: ew-resize",
                 onmousemove: move |e: Event<MouseData>| {
+                    // If the user released the button outside the window
+                    // and the cursor has come back in with no button held,
+                    // close out the drag cleanly.
+                    if !e.held_buttons().contains(MouseButton::Primary) {
+                        drag_state.set(None);
+                        return;
+                    }
                     if let Some((last_x, current_val)) = drag_state() {
                         let new_x = e.client_coordinates().x;
                         let delta = (new_x - last_x) as f32;
@@ -136,7 +149,6 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
                     }
                 },
                 onmouseup: move |_| drag_state.set(None),
-                onmouseleave: move |_| drag_state.set(None),
             }
         }
     }
