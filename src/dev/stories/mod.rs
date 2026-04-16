@@ -1,6 +1,7 @@
 pub mod component_row;
 pub mod components_list_panel;
 pub mod descs_panel;
+pub mod dock_workspace;
 pub mod global_row;
 pub mod globals_panel;
 pub mod proc_tree_node;
@@ -14,6 +15,7 @@ pub mod vec3_editor;
 pub use component_row::DevComponentRow;
 pub use components_list_panel::DevComponentsListPanel;
 pub use descs_panel::DevDescsPanel;
+pub use dock_workspace::DevDockWorkspace;
 pub use global_row::DevGlobalRow;
 pub use globals_panel::DevGlobalsPanel;
 pub use proc_tree_node::DevProcTreeNode;

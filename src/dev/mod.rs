@@ -29,6 +29,7 @@ pub fn is_dev_route(route: &Route) -> bool {
             | Route::DevDescsPanel {}
             | Route::DevProcsPanel {}
             | Route::DevSceneSimulation {}
+            | Route::DevDockWorkspace {}
     )
 }
 
@@ -59,6 +60,7 @@ pub fn DevSidebar() -> Element {
             DevNavItem { route: Route::DevSceneTree {}, label: "SceneTree" }
             SidebarHeader { label: "Simulations" }
             DevNavItem { route: Route::DevSceneSimulation {}, label: "Scene viewer" }
+            DevNavItem { route: Route::DevDockWorkspace {}, label: "Dock workspace" }
         }
     }
 }

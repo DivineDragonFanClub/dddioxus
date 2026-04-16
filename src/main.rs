@@ -16,9 +16,9 @@ use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]
 use dev::{
-    DevComponentRow, DevComponentsListPanel, DevDescsPanel, DevGlobalRow, DevGlobalsPanel,
-    DevIndex, DevProcTreeNode, DevProcsPanel, DevScenePanel, DevSceneSimulation, DevSceneTree,
-    DevTransformPanel, DevVec3Editor,
+    DevComponentRow, DevComponentsListPanel, DevDescsPanel, DevDockWorkspace, DevGlobalRow,
+    DevGlobalsPanel, DevIndex, DevProcTreeNode, DevProcsPanel, DevScenePanel, DevSceneSimulation,
+    DevSceneTree, DevTransformPanel, DevVec3Editor,
 };
 
 mod components;
@@ -81,6 +81,9 @@ pub enum Route {
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev/scene-simulation")]
         DevSceneSimulation {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/dock-workspace")]
+        DevDockWorkspace {},
 }
 
 fn main() {
