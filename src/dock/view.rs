@@ -386,20 +386,58 @@ fn DragOverlay() -> Element {
         });
     };
 
-    let on_up = move |_| {
-        if let Some(d) = drag() {
-            if let Some(h) = d.hover {
+    let on_up = move |e: MouseEvent| {
+        let Some(d) = drag() else {
+            return;
+        };
+        let coord = e.client_coordinates();
+        let cursor = (coord.x, coord.y);
+
+        // Outside-viewport release = eject into a floating window, anchored
+        // near the cursor so it doesn't land off-screen.
+        spawn(async move {
+            let viewport = fetch_viewport().await;
+            let (vw, vh) = viewport.unwrap_or((1280.0, 720.0));
+            let outside = cursor.0 < 0.0
+                || cursor.0 > vw
+                || cursor.1 < 0.0
+                || cursor.1 > vh;
+
+            if let Some(h) = &d.hover {
+                if !outside {
+                    commands::apply(
+                        &mut state.write(),
+                        DockCommand::Drop {
+                            binding: d.binding,
+                            target: h.leaf_path.clone(),
+                            side: h.side,
+                        },
+                    );
+                    drag.set(None);
+                    return;
+                }
+            }
+
+            if outside || d.hover.is_none() {
+                // Default float size, positioned near the cursor so the user
+                // sees the new window appear where they released.
+                let (fw, fh) = super::floating::DEFAULT_FLOAT_SIZE;
+                let bounds = (
+                    cursor.0.max(0.0),
+                    cursor.1.max(0.0),
+                    fw,
+                    fh,
+                );
                 commands::apply(
                     &mut state.write(),
-                    DockCommand::Drop {
+                    DockCommand::EjectToFloating {
                         binding: d.binding,
-                        target: h.leaf_path,
-                        side: h.side,
+                        bounds,
                     },
                 );
             }
-        }
-        drag.set(None);
+            drag.set(None);
+        });
     };
 
     let (cx, cy) = d.cursor;
@@ -436,6 +474,16 @@ fn DragOverlay() -> Element {
             }
         }
     }
+}
+
+async fn fetch_viewport() -> Option<(f64, f64)> {
+    let mut eval = document::eval("dioxus.send([window.innerWidth, window.innerHeight]);");
+    let val = eval.recv::<serde_json::Value>().await.ok()?;
+    let arr = val.as_array()?;
+    if arr.len() != 2 {
+        return None;
+    }
+    Some((arr[0].as_f64()?, arr[1].as_f64()?))
 }
 
 fn tab_label(b: &super::model::Binding) -> String {
