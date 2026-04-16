@@ -12,7 +12,8 @@ use components::globals_view::GlobalsView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
-use dock::{persistence as dock_persistence, DockState};
+use dock::persistence as dock_persistence;
+use dock::DockState;
 use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]

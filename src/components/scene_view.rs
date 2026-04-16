@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use super::inspector::Inspector;
 use super::scene_tree::SceneTree;
+use crate::dock::{selectors, DockState};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
@@ -9,9 +10,9 @@ use crate::rpc;
 #[component]
 pub fn SceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let mut dock_state = use_context::<Signal<DockState>>();
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetSceneNameResponse, String>>);
-    let mut selected_path = use_signal(|| None::<String>);
     let mut mounted = use_signal(|| false);
 
     let mut fetch = move || {
@@ -40,17 +41,21 @@ pub fn SceneView() -> Element {
         });
     };
 
+    let selected_path = selectors::follow_inspector_path(&dock_state.read());
+
     rsx! {
         div { class: "flex flex-1 h-full",
             ScenePanel {
                 data: data(),
                 loading: loading(),
-                selected_path: selected_path(),
+                selected_path: selected_path.clone(),
                 on_refresh: move |_| fetch(),
-                on_select: move |path: String| selected_path.set(Some(path)),
+                on_select: move |path: String| {
+                    selectors::set_follow_inspector_path(&mut dock_state.write(), Some(path));
+                },
                 on_toggle_active: toggle_active,
             }
-            match selected_path() {
+            match selected_path {
                 Some(path) => rsx! { Inspector { path } },
                 None => rsx! {
                     div { class: "flex flex-col shrink-0 bg-gray-900 border-l border-gray-700 overflow-y-auto",
