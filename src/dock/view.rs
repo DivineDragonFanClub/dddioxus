@@ -494,12 +494,19 @@ fn FloatingGhostOverlay() -> Element {
     // cache its preview rect in main-window client space.
     use_effect(move || {
         let current = ghost.read().clone();
+        let mut clear_preview = move || {
+            // Only set if currently Some — avoids spurious re-renders on
+            // every ghost tick when there's nothing to preview.
+            if preview.peek().is_some() {
+                preview.set(None);
+            }
+        };
         let Some(g) = current else {
-            preview.set(None);
+            clear_preview();
             return;
         };
         if !g.dragging {
-            preview.set(None);
+            clear_preview();
             return;
         }
         let anchor_screen_x = g.screen_pos.0 + g.size.0 * 0.5;
@@ -512,8 +519,11 @@ fn FloatingGhostOverlay() -> Element {
             let ay = anchor_screen_y - main_y;
             if let Some((_, rect)) = find_leaf_at(ax, ay).await {
                 let side = super::drag::hit_side(rect, (ax, ay));
-                preview.set(Some(super::drag::preview_rect(rect, side)));
-            } else {
+                let new_rect = super::drag::preview_rect(rect, side);
+                if preview.peek().as_ref() != Some(&new_rect) {
+                    preview.set(Some(new_rect));
+                }
+            } else if preview.peek().is_some() {
                 preview.set(None);
             }
         });
@@ -547,7 +557,10 @@ fn use_ghost_redock() {
     use_effect(move || {
         let current = ghost.read().clone();
         let now_dragging = current.as_ref().map(|g| g.dragging).unwrap_or(false);
-        let prev = was_dragging();
+        // `peek()` reads the current value without establishing a subscription
+        // — crucial, because we also write `was_dragging` below. Using the
+        // subscribing `was_dragging()` here would re-run this effect forever.
+        let prev = *was_dragging.peek();
 
         if prev && !now_dragging {
             // Falling edge — commit attempt.
@@ -576,7 +589,11 @@ fn use_ghost_redock() {
                 });
             }
         }
-        was_dragging.set(now_dragging);
+        // Guard the write so we don't churn through identical values and
+        // wake every subscriber of `was_dragging` on every ghost update.
+        if prev != now_dragging {
+            was_dragging.set(now_dragging);
+        }
     });
 }
 
