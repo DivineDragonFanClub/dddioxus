@@ -130,12 +130,15 @@ pub fn LeafView(props: LeafViewProps) -> Element {
     let leaf_path = props.path.clone();
 
     let state_read = state.read();
-    let tabs: Vec<(BindingId, PanelKind, String)> = bindings
+    let tabs: Vec<(BindingId, PanelKind, String, bool)> = bindings
         .iter()
         .filter_map(|id| {
             state_read.bindings.get(id).map(|b| {
                 let label = tab_label(b);
-                (*id, b.kind, label)
+                // Closable = anything except the follow-selection inspector,
+                // which is considered an implicit "always there" slot.
+                let closable = !(matches!(b.kind, PanelKind::Inspector) && b.follows_selection);
+                (*id, b.kind, label, closable)
             })
         })
         .collect();
@@ -169,23 +172,23 @@ pub fn LeafView(props: LeafViewProps) -> Element {
             "data-component": "Leaf",
             "data-path": "{path_str(&leaf_path)}",
             class: "flex flex-col flex-1 min-w-0 min-h-0 bg-gray-900 overflow-hidden",
-            if tabs.len() > 1 || tabs.len() == 1 {
+            if !tabs.is_empty() {
                 // Always show the tab strip so any tab is draggable — even a
                 // single-tab leaf is a valid drag source.
                 div { class: "flex shrink-0 bg-gray-950 border-b border-gray-800 overflow-x-auto",
-                    for (id, kind, label) in tabs.iter().cloned() {
+                    for (id, kind, label, closable) in tabs.iter().cloned() {
                         {
                             let selected = active == Some(id);
                             let cls = if selected {
-                                "px-3 py-1.5 text-xs text-white bg-gray-800 border-r border-gray-700 select-none cursor-grab"
+                                "flex items-center gap-1 px-3 py-1.5 text-xs text-white bg-gray-800 border-r border-gray-700 select-none cursor-grab"
                             } else {
-                                "px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 border-r border-gray-800 select-none cursor-grab"
+                                "flex items-center gap-1 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-gray-800 border-r border-gray-800 select-none cursor-grab"
                             };
                             let mut on_tab_click = on_tab_click.clone();
                             let mut start_drag = start_drag.clone();
                             let label_clone = label.clone();
                             rsx! {
-                                button {
+                                div {
                                     key: "{id.0}",
                                     class: "{cls}",
                                     title: "{panel_kind_name(kind)}: {label}",
@@ -197,7 +200,24 @@ pub fn LeafView(props: LeafViewProps) -> Element {
                                             on_tab_click(id);
                                         }
                                     },
-                                    "{label}"
+                                    span { "{label}" }
+                                    if closable {
+                                        button {
+                                            class: "text-gray-500 hover:text-red-400 ml-1",
+                                            title: "Close tab",
+                                            onmousedown: move |e: MouseEvent| {
+                                                e.stop_propagation();
+                                            },
+                                            onclick: move |e: MouseEvent| {
+                                                e.stop_propagation();
+                                                super::commands::apply(
+                                                    &mut state.write(),
+                                                    DockCommand::CloseBinding { binding: id },
+                                                );
+                                            },
+                                            "×"
+                                        }
+                                    }
                                 }
                             }
                         }
