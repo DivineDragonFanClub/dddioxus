@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::components::components_panel::ComponentsListPanel;
+use crate::components::inspector::INSPECTOR_WIDTH_STYLE;
 use crate::components::scene_view::ScenePanel;
 use crate::components::transform_inspector::TransformPanel;
 use crate::dev::fixtures;
@@ -25,6 +26,7 @@ pub fn DevSceneSimulation() -> Element {
                     div {
                         "data-component": "Inspector",
                         class: "flex flex-col shrink-0 bg-gray-900 border-l border-gray-700 overflow-y-auto",
+                        style: "{INSPECTOR_WIDTH_STYLE}",
                         div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700",
                             h3 { class: "text-white font-bold text-sm", "Inspector" }
                             p { class: "text-gray-500 text-xs truncate", "{path}" }
@@ -45,6 +47,7 @@ pub fn DevSceneSimulation() -> Element {
                     div {
                         "data-component": "Inspector",
                         class: "flex flex-col shrink-0 bg-gray-900 border-l border-gray-700 overflow-y-auto",
+                        style: "{INSPECTOR_WIDTH_STYLE}",
                         div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700",
                             h3 { class: "text-white font-bold text-sm", "Inspector" }
                             p { class: "text-gray-500 text-xs", "No selection" }
