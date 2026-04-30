@@ -488,15 +488,18 @@ fn DragOverlay() -> Element {
 #[component]
 fn FloatingGhostOverlay() -> Element {
     let ghost = use_context::<Signal<Option<drag::DropGhost>>>();
-    let mut preview = use_signal(|| None::<(f64, f64, f64, f64)>);
+    // (leaf_rect, preview_rect) — leaf_rect outlines the entire target leaf
+    // (a thick ring, visible around whatever portion the floating window
+    // occludes), preview_rect is the tinted fill showing the exact zone
+    // that'll be taken.
+    let mut preview =
+        use_signal(|| None::<((f64, f64, f64, f64), (f64, f64, f64, f64))>);
 
     // On each ghost update, async-resolve the hovered leaf + drop zone and
     // cache its preview rect in main-window client space.
     use_effect(move || {
         let current = ghost.read().clone();
         let mut clear_preview = move || {
-            // Only set if currently Some — avoids spurious re-renders on
-            // every ghost tick when there's nothing to preview.
             if preview.peek().is_some() {
                 preview.set(None);
             }
@@ -520,8 +523,9 @@ fn FloatingGhostOverlay() -> Element {
             if let Some((_, rect)) = find_leaf_at(ax, ay).await {
                 let side = super::drag::hit_side(rect, (ax, ay));
                 let new_rect = super::drag::preview_rect(rect, side);
-                if preview.peek().as_ref() != Some(&new_rect) {
-                    preview.set(Some(new_rect));
+                let pair = (rect, new_rect);
+                if preview.peek().as_ref() != Some(&pair) {
+                    preview.set(Some(pair));
                 }
             } else if preview.peek().is_some() {
                 preview.set(None);
@@ -529,18 +533,29 @@ fn FloatingGhostOverlay() -> Element {
         });
     });
 
-    let Some((px, py, pw, ph)) = preview() else {
+    let Some(((lx, ly, lw, lh), (px, py, pw, ph))) = preview() else {
         return rsx! {};
     };
-    let style = format!(
+    let leaf_style = format!(
+        "left: {}px; top: {}px; width: {}px; height: {}px;",
+        lx, ly, lw, lh
+    );
+    let preview_style = format!(
         "left: {}px; top: {}px; width: {}px; height: {}px;",
         px, py, pw, ph
     );
     rsx! {
+        // Thick outline on the whole target leaf — peeks around the
+        // floating window so the user can see where redock will land.
+        div {
+            "data-component": "FloatingGhostTargetOutline",
+            class: "absolute border-2 border-indigo-400 pointer-events-none transition-all duration-75",
+            style: "{leaf_style}",
+        }
         div {
             "data-component": "FloatingGhost",
             class: "absolute bg-indigo-500/25 border border-indigo-400/90 ring-1 ring-indigo-400/40 pointer-events-none transition-all duration-75",
-            style: "{style}",
+            style: "{preview_style}",
         }
     }
 }

@@ -24,6 +24,9 @@ pub struct FloatingWindowRootProps {
 pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
     let mut state = use_context::<Signal<DockState>>();
     let mut ghost = use_context::<Signal<Option<DropGhost>>>();
+    // LeafView inside this window's DockNodeView reads Signal<Option<DragState>>
+    // from context; provide a window-local one so tab drags don't panic.
+    drag::use_drag_state();
     let window_id = props.window_id;
     let state_read = state.read();
     let Some(fw) = state_read.floating.iter().find(|f| f.id == window_id) else {
@@ -76,8 +79,10 @@ pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
         }
     });
 
-    // Debounce the active flag 150 ms after the last `Moved`. The falling
+    // Debounce the active flag 100 ms after the last `Moved`. The falling
     // edge of `dragging` is the main window's cue to commit the re-dock.
+    // 100 ms is long enough to coalesce the brief gaps between OS move
+    // events mid-drag, short enough that release-to-dock feels responsive.
     let mut ghost_signal = ghost;
     use_effect(move || {
         let snapshot = ghost_signal.read().clone();
@@ -85,7 +90,7 @@ pub fn FloatingWindowRoot(props: FloatingWindowRootProps) -> Element {
             if g.window == window_id && g.dragging {
                 let ts = g.last_move;
                 spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                     let mut ghost = ghost_signal;
                     let still_same = ghost
                         .peek()
