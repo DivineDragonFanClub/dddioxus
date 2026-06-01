@@ -9,6 +9,7 @@ use dioxus_logger::tracing::Level;
 
 use components::connection_provider::ConnectionProvider;
 use components::globals_view::GlobalsView;
+use components::mess_view::MessView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
@@ -39,6 +40,8 @@ pub enum Route {
         Globals {},
         #[route("/procs")]
         Procs {},
+        #[route("/mess")]
+        Mess {},
 
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev")]
@@ -149,6 +152,15 @@ fn Procs() -> Element {
     rsx! {
         ConnectionProvider {
             ProcsView {}
+        }
+    }
+}
+
+#[component]
+fn Mess() -> Element {
+    rsx! {
+        ConnectionProvider {
+            MessView {}
         }
     }
 }

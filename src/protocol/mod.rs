@@ -1,11 +1,13 @@
 pub mod components;
 pub mod globals;
+pub mod mess;
 pub mod procs;
 pub mod scene;
 pub mod transform;
 
 pub use components::*;
 pub use globals::*;
+pub use mess::*;
 pub use procs::*;
 pub use scene::*;
 pub use transform::*;
@@ -15,3 +17,4 @@ pub use transform::*;
 pub(crate) const ENGAGE_NS: u16 = 1;
 pub(crate) const VARIABLES_NS: u16 = 2;
 pub(crate) const PROCS_NS: u16 = 3;
+pub(crate) const MESS_NS: u16 = 4;

@@ -44,6 +44,7 @@ fn Sidebar() -> Element {
             NavItem { route: Route::Scene {}, label: "Scene" }
             NavItem { route: Route::Globals {}, label: "Globals" }
             NavItem { route: Route::Procs {}, label: "Procs" }
+            NavItem { route: Route::Mess {}, label: "Mess" }
             {dev_nav_item()}
         }
     }

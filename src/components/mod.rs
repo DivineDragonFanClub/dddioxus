@@ -3,6 +3,7 @@ pub mod connection_provider;
 pub mod fields;
 pub mod globals_view;
 pub mod inspector;
+pub mod mess_view;
 pub mod procs_view;
 pub mod scene_tree;
 pub mod scene_view;
