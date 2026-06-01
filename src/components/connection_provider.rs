@@ -42,6 +42,18 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     let config = props.config.clone();
     let manual_config = config.clone();
 
+    // When a connection comes up, watch for it dropping so the UI flips to
+    // disconnected and shows why (e.g. the game crashed), instead of looking
+    // connected forever. Fires once per connection.
+    use_effect(move || {
+        if let Some(client) = conn.read().client().cloned() {
+            spawn(async move {
+                let reason = client.wait_disconnect().await;
+                conn.set(ConnectionState::Disconnected { reason: Some(reason) });
+            });
+        }
+    });
+
     let auto_connect = move |_| {
         if connecting() {
             return;
@@ -102,11 +114,12 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     });
 
     let disconnect = move |_| {
-        conn.set(ConnectionState::Disconnected);
+        conn.set(ConnectionState::Disconnected { reason: None });
     };
 
     let is_connected = conn.read().is_open();
     let server_info = conn.read().server_info().cloned();
+    let disconnect_reason = conn.read().disconnect_reason().map(|s| s.to_string());
 
     if let (true, Some(info)) = (is_connected, server_info) {
         let conn_key = format!("{}:{}", info.host, info.port);
@@ -126,6 +139,12 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     } else {
         rsx! {
             div { class: "flex flex-col items-center gap-6 p-8",
+                if let Some(reason) = disconnect_reason {
+                    div { class: "w-full max-w-md px-4 py-3 bg-red-900/40 border border-red-700 rounded text-center",
+                        p { class: "text-red-300 text-sm font-semibold", "Connection lost" }
+                        p { class: "text-red-200 text-xs mt-1", "{reason}" }
+                    }
+                }
                 div { class: "flex flex-col items-center gap-3",
                     p { class: "text-gray-400 text-sm",
                         "Searching for server on the local network..."

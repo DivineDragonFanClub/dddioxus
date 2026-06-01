@@ -108,17 +108,38 @@ pub struct ServerInfo {
     pub api_version: ApiVersion,
 }
 
+/// Channel a pending call waits on. The reader sends `Ok(frame)` on a reply, or
+/// `Err(reason)` if the connection died first (so the caller learns *why*, not
+/// just that it closed).
+type ReplyTx = oneshot::Sender<Result<Frame, String>>;
+
 pub struct Client {
     codec: Arc<JsonCodec>,
     sink: AsyncMutex<WsSink>,
-    pending: Arc<Mutex<HashMap<u32, oneshot::Sender<Frame>>>>,
+    pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     next_call_id: AtomicU32,
     info: ServerInfo,
+    // Fires once with a human reason when the read loop ends (clean close, or the
+    // game crashing mid-handler). The connection provider awaits this to flip the
+    // UI to disconnected and show why, instead of silently looking connected.
+    disconnect: AsyncMutex<Option<oneshot::Receiver<String>>>,
 }
 
 impl Client {
     pub fn info(&self) -> &ServerInfo {
         &self.info
+    }
+
+    /// Resolves when the connection drops, with a human-readable reason. Consumed
+    /// once (by the connection provider); later callers wait forever.
+    pub async fn wait_disconnect(&self) -> String {
+        let rx = self.disconnect.lock().await.take();
+        match rx {
+            Some(rx) => rx
+                .await
+                .unwrap_or_else(|_| "Connection closed.".to_string()),
+            None => std::future::pending().await,
+        }
     }
 
     pub async fn call<Req, Resp>(&self, request: Req, cmd_id: CommandId) -> Result<Resp, String>
@@ -132,16 +153,17 @@ impl Client {
             Frame::Response { payload, .. } => {
                 self.codec.decode(&payload).map_err(|e| format!("Deserialize: {e}"))
             }
+            // The server caught a handler error/panic and reported it instead of dying.
             Frame::Error { detail, module, code, .. } => {
-                Err(format!("[{module}-{code:04}] {detail}"))
+                Err(format!("Server reported an error [{module}-{code:04}]: {detail}"))
             }
-            _ => Err("Unexpected frame".into()),
+            _ => Err("Unexpected frame from server".into()),
         }
     }
 
     async fn call_raw(&self, cmd: CommandId, payload: Vec<u8>) -> Result<Frame, String> {
         let call_id = self.next_call_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
+        let (tx, rx) = oneshot::channel::<Result<Frame, String>>();
         self.pending.lock().unwrap().insert(call_id, tx);
 
         let frame = Frame::request(call_id, cmd.namespace, cmd.command, payload);
@@ -151,11 +173,16 @@ impl Client {
             let mut sink = self.sink.lock().await;
             if let Err(e) = sink.send(Message::Binary(bytes)).await {
                 self.pending.lock().unwrap().remove(&call_id);
-                return Err(format!("Send: {e}"));
+                return Err(format!("Failed to send request: {e} (the connection looks dead)."));
             }
         }
 
-        rx.await.map_err(|_| "Connection closed".to_string())
+        // Ok(frame) on a real reply, Err(reason) when the reader saw the connection
+        // drop while we were waiting (the prime suspect for a server-side crash).
+        match rx.await {
+            Ok(result) => result,
+            Err(_) => Err("Connection closed before the server replied.".into()),
+        }
     }
 }
 
@@ -235,9 +262,10 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     }
 
     let codec = Arc::new(JsonCodec);
-    let pending: Arc<Mutex<HashMap<u32, oneshot::Sender<Frame>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let pending: Arc<Mutex<HashMap<u32, ReplyTx>>> = Arc::new(Mutex::new(HashMap::new()));
+    let (disc_tx, disc_rx) = oneshot::channel::<String>();
 
-    spawn_reader(stream, codec.clone(), pending.clone());
+    spawn_reader(stream, codec.clone(), pending.clone(), disc_tx);
 
     Ok(Arc::new(Client {
         codec,
@@ -249,6 +277,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
             port,
             api_version: ack.server_api_version,
         },
+        disconnect: AsyncMutex::new(Some(disc_rx)),
     }))
 }
 
@@ -260,37 +289,52 @@ pub async fn discover_and_connect(config: &ClientConfig) -> Result<Arc<Client>, 
 fn spawn_reader(
     mut stream: WsStream,
     codec: Arc<JsonCodec>,
-    pending: Arc<Mutex<HashMap<u32, oneshot::Sender<Frame>>>>,
+    pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
+    disconnect: oneshot::Sender<String>,
 ) {
     tokio::spawn(async move {
-        while let Some(msg) = stream.next().await {
-            let bytes = match msg {
-                Ok(Message::Binary(b)) => b,
-                Ok(Message::Close(_)) | Err(_) => break,
-                Ok(_) => continue,
-            };
-
-            let frame: Frame = match codec.decode(&bytes) {
-                Ok(f) => f,
-                Err(e) => {
-                    log::warn!("Failed to decode frame: {e}");
-                    continue;
+        // Run until the connection ends, then carry out *why* so callers and the UI
+        // can tell a server crash apart from a clean shutdown.
+        let reason = loop {
+            match stream.next().await {
+                Some(Ok(Message::Binary(bytes))) => {
+                    let frame: Frame = match codec.decode(&bytes) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            log::warn!("Failed to decode frame: {e}");
+                            continue;
+                        }
+                    };
+                    let call_id = match &frame {
+                        Frame::Response { call_id, .. } => *call_id,
+                        Frame::Error { call_id, .. } => *call_id,
+                        _ => continue,
+                    };
+                    if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
+                        let _ = tx.send(Ok(frame));
+                    }
                 }
-            };
+                Some(Ok(Message::Close(_))) => break "The server closed the connection.".to_string(),
+                Some(Ok(_)) => continue,
+                Some(Err(e)) => {
+                    break format!("Connection error: {e}. The server (the game) likely crashed.")
+                }
+                None => {
+                    break "Connection dropped with no clean close — the server (the game) likely crashed."
+                        .to_string()
+                }
+            }
+        };
 
-            let call_id = match &frame {
-                Frame::Response { call_id, .. } => *call_id,
-                Frame::Error { call_id, .. } => *call_id,
-                _ => continue,
-            };
-
-            if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
-                let _ = tx.send(frame);
+        // Fail every in-flight call with the reason, so whichever request was being
+        // processed when it died surfaces "the server likely crashed handling this"
+        // instead of a bare "connection closed".
+        {
+            let mut map = pending.lock().unwrap();
+            for (_call_id, tx) in map.drain() {
+                let _ = tx.send(Err(reason.clone()));
             }
         }
-
-        // Connection closed — fail every outstanding call so callers can surface the error.
-        let mut map = pending.lock().unwrap();
-        map.clear();
+        let _ = disconnect.send(reason);
     });
 }

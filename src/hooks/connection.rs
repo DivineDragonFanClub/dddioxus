@@ -8,7 +8,11 @@ pub use super::client::{connect, discover_and_connect, ClientConfig};
 
 #[derive(Clone)]
 pub enum ConnectionState {
-    Disconnected,
+    Disconnected {
+        /// Why we're disconnected, when we know (e.g. the server crashed). `None`
+        /// for the initial state or a user-initiated disconnect.
+        reason: Option<String>,
+    },
     Connected {
         client: Arc<Client>,
         info: ServerInfo,
@@ -33,9 +37,17 @@ impl ConnectionState {
             _ => None,
         }
     }
+
+    /// Reason for the current disconnect, if any.
+    pub fn disconnect_reason(&self) -> Option<&str> {
+        match self {
+            ConnectionState::Disconnected { reason } => reason.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 pub fn use_connection() -> Signal<ConnectionState> {
-    let signal = use_signal(|| ConnectionState::Disconnected);
+    let signal = use_signal(|| ConnectionState::Disconnected { reason: None });
     use_hook(|| provide_context(signal))
 }
