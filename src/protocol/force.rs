@@ -110,3 +110,20 @@ impl Command for SetUnitClassRequest {
     const ID: CommandId = CommandId::new(FORCE_NS, 4);
     type Response = SetUnitClassResponse;
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveUnitRequest {
+    pub from_force_id: i32,
+    pub unit_index: i32,
+    pub to_force_id: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveUnitResponse {
+    pub ok: bool,
+}
+
+impl Command for MoveUnitRequest {
+    const ID: CommandId = CommandId::new(FORCE_NS, 5);
+    type Response = MoveUnitResponse;
+}

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     ClassInfo, ForceInfo, GetClassesRequest, GetForceUnitsRequest, GetForcesRequest,
-    SetUnitClassRequest, SetUnitStatRequest, StatValue, UnitInfo,
+    MoveUnitRequest, SetUnitClassRequest, SetUnitStatRequest, StatValue, UnitInfo,
 };
 use crate::rpc;
 
@@ -75,6 +75,21 @@ pub fn ForceView() -> Element {
         });
     };
 
+    let on_move = move |req: MoveUnitRequest| {
+        spawn(async move {
+            if rpc::call(&conn, req.clone()).await.is_ok() {
+                if let Ok(u) = rpc::call(&conn, GetForceUnitsRequest { force_id: req.from_force_id }).await {
+                    units.set(Some(Ok(u.units)));
+                }
+                if let Ok(f) = rpc::call(&conn, GetForcesRequest).await {
+                    forces.set(Some(Ok(f.forces)));
+                }
+            }
+        });
+    };
+
+    let force_options = forces().and_then(|r| r.ok()).unwrap_or_default();
+
     rsx! {
         div { class: "flex h-full",
             div { class: "w-44 shrink-0 bg-gray-900 border-r border-gray-700 overflow-y-auto",
@@ -105,8 +120,10 @@ pub fn ForceView() -> Element {
                 force_id: selected(),
                 loading: units_loading(),
                 classes: classes(),
+                force_options: force_options,
                 on_commit: on_commit,
                 on_class_change: on_class_change,
+                on_move: on_move,
             }
         }
     }
@@ -145,8 +162,10 @@ pub struct UnitsPanelProps {
     pub force_id: Option<i32>,
     pub loading: bool,
     pub classes: Vec<ClassInfo>,
+    pub force_options: Vec<ForceInfo>,
     pub on_commit: EventHandler<SetUnitStatRequest>,
     pub on_class_change: EventHandler<SetUnitClassRequest>,
+    pub on_move: EventHandler<MoveUnitRequest>,
 }
 
 #[component]
@@ -169,8 +188,10 @@ pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
                                 force_id: props.force_id.unwrap_or(0),
                                 unit: u,
                                 classes: props.classes.clone(),
+                                force_options: props.force_options.clone(),
                                 on_commit: props.on_commit,
                                 on_class_change: props.on_class_change,
+                                on_move: props.on_move,
                             }
                         }
                     },
@@ -189,8 +210,10 @@ pub struct UnitCardProps {
     pub force_id: i32,
     pub unit: UnitInfo,
     pub classes: Vec<ClassInfo>,
+    pub force_options: Vec<ForceInfo>,
     pub on_commit: EventHandler<SetUnitStatRequest>,
     pub on_class_change: EventHandler<SetUnitClassRequest>,
+    pub on_move: EventHandler<MoveUnitRequest>,
 }
 
 #[component]
@@ -198,6 +221,7 @@ pub fn UnitCard(props: UnitCardProps) -> Element {
     let force_id = props.force_id;
     let unit_index = props.unit.index;
     let on_class_change = props.on_class_change;
+    let on_move = props.on_move;
     rsx! {
         div { class: "border-b border-gray-700 px-4 py-3",
             div { class: "flex items-center gap-3 mb-2",
@@ -215,6 +239,24 @@ pub fn UnitCard(props: UnitCardProps) -> Element {
                     },
                     for c in props.classes.iter() {
                         option { value: "{c.jid}", selected: c.jid == props.unit.class_jid, "{c.name}" }
+                    }
+                }
+                select {
+                    class: "ml-auto bg-gray-900 text-gray-300 text-xs rounded border border-gray-600 px-1 py-0.5 focus:border-indigo-500 focus:outline-none",
+                    onchange: move |e| {
+                        if let Ok(to) = e.value().parse::<i32>() {
+                            on_move.call(MoveUnitRequest {
+                                from_force_id: force_id,
+                                unit_index,
+                                to_force_id: to,
+                            });
+                        }
+                    },
+                    option { value: "", selected: true, disabled: true, "Move to…" }
+                    for f in props.force_options.iter() {
+                        if f.id != force_id {
+                            option { value: "{f.id}", "{f.label}" }
+                        }
                     }
                 }
             }
