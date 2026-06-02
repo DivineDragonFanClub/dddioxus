@@ -1,6 +1,7 @@
 pub mod components_panel;
 pub mod connection_provider;
 pub mod fields;
+pub mod force_view;
 pub mod globals_view;
 pub mod inspector;
 pub mod mess_view;

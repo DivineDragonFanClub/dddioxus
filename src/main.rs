@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
 use components::connection_provider::ConnectionProvider;
+use components::force_view::ForceView;
 use components::globals_view::GlobalsView;
 use components::mess_view::MessView;
 use components::procs_view::ProcsView;
@@ -36,6 +37,8 @@ pub enum Route {
     #[layout(Shell)]
         #[route("/")]
         Scene {},
+        #[route("/forces")]
+        Forces {},
         #[route("/globals")]
         Globals {},
         #[route("/procs")]
@@ -134,6 +137,15 @@ fn Scene() -> Element {
     rsx! {
         ConnectionProvider {
             SceneView {}
+        }
+    }
+}
+
+#[component]
+fn Forces() -> Element {
+    rsx! {
+        ConnectionProvider {
+            ForceView {}
         }
     }
 }

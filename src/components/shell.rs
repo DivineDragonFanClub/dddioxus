@@ -42,6 +42,7 @@ fn Sidebar() -> Element {
     rsx! {
         nav { class: "w-40 shrink-0 bg-gray-950 border-r border-gray-700 flex flex-col py-2",
             NavItem { route: Route::Scene {}, label: "Scene" }
+            NavItem { route: Route::Forces {}, label: "Forces" }
             NavItem { route: Route::Globals {}, label: "Globals" }
             NavItem { route: Route::Procs {}, label: "Procs" }
             NavItem { route: Route::Mess {}, label: "Mess" }
