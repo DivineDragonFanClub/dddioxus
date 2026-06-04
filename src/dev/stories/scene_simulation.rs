@@ -5,15 +5,6 @@ use crate::components::scene_view::ScenePanel;
 use crate::components::transform_inspector::TransformPanel;
 use crate::dev::fixtures;
 
-/// Full-layout "simulation" of the Scene viewer driven entirely by
-/// fixtures — no live game connection required. Mirrors the real
-/// SceneView layout (ScenePanel + Inspector column) but swaps in
-/// TransformPanel / ComponentsListPanel with canned data where the
-/// real app uses TransformInspector / ComponentsPanel (which fetch).
-///
-/// Clicking nodes in the tree drives the Inspector's header path.
-/// The fixture data in the Inspector stays the same regardless of
-/// which node is selected — it's a layout demo, not a true mock.
 #[component]
 pub fn DevSceneSimulation() -> Element {
     let mut selected_path = use_signal(|| None::<String>);

@@ -14,13 +14,13 @@ pub fn Shell() -> Element {
     let _ = &current;
 
     rsx! {
-        div { class: "flex flex-1 overflow-hidden",
+        div { class: "flex flex-1 overflow-hidden min-h-0",
             if on_dev {
                 {dev_sidebar()}
             } else {
                 Sidebar {}
             }
-            div { class: "flex-1 overflow-hidden",
+            div { class: "flex flex-col flex-1 overflow-hidden min-h-0",
                 Outlet::<Route> {}
             }
         }
@@ -42,10 +42,14 @@ fn Sidebar() -> Element {
     rsx! {
         nav { class: "w-40 shrink-0 bg-gray-950 border-r border-gray-700 flex flex-col py-2",
             NavItem { route: Route::Scene {}, label: "Scene" }
+            NavItem { route: Route::Map {}, label: "Map" }
             NavItem { route: Route::Forces {}, label: "Forces" }
+            NavItem { route: Route::Bonds {}, label: "Bonds" }
             NavItem { route: Route::Globals {}, label: "Globals" }
             NavItem { route: Route::Procs {}, label: "Procs" }
             NavItem { route: Route::Mess {}, label: "Mess" }
+            NavItem { route: Route::Script {}, label: "Script" }
+            NavItem { route: Route::Cutscene {}, label: "Cutscene" }
             {dev_nav_item()}
         }
     }

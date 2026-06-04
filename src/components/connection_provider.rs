@@ -5,8 +5,6 @@ use dioxus::prelude::*;
 
 use crate::hooks::connection::{connect, discover_and_connect, ClientConfig, ConnectionState};
 
-/// Path to the dotfile that stores the last successful manual host:port.
-/// Lives in $HOME so it survives `dx build`/`cargo clean`/app reinstall.
 fn last_host_path() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
@@ -42,9 +40,6 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     let config = props.config.clone();
     let manual_config = config.clone();
 
-    // When a connection comes up, watch for it dropping so the UI flips to
-    // disconnected and shows why (e.g. the game crashed), instead of looking
-    // connected forever. Fires once per connection.
     use_effect(move || {
         if let Some(client) = conn.read().client().cloned() {
             spawn(async move {
@@ -125,7 +120,7 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
         let conn_key = format!("{}:{}", info.host, info.port);
         rsx! {
             div { class: "flex flex-col h-full",
-                div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300",
+                div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300 shrink-0",
                     span { "Connected to {info.host}:{info.port} (v{info.api_version})" }
                     button {
                         class: "text-red-400 hover:text-red-300 text-xs",
@@ -133,7 +128,7 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         "Disconnect"
                     }
                 }
-                div { key: "{conn_key}", class: "flex flex-1 overflow-hidden", { props.children } }
+                div { key: "{conn_key}", class: "flex flex-1 overflow-hidden min-h-0", { props.children } }
             }
         }
     } else {

@@ -1,12 +1,3 @@
-//! Transport + handshake + call multiplexing. No Dioxus types live here so this
-//! module can be lifted into its own `sora-client` crate later without changes.
-//!
-//! TODO once a second codec or compression/encryption impl exists:
-//! - Swap `Arc<JsonCodec>` for `Arc<dyn FrameCodec>` (needs a dyn-safe wrapper
-//!   around `sora_protocol::codec::Codec`, likely via `erased_serde`).
-//! - Let `ClientBuilder` register multiple codecs + compression + encryption
-//!   implementations; the builder then picks what to advertise in the handshake.
-
 use std::collections::HashMap;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -108,9 +99,6 @@ pub struct ServerInfo {
     pub api_version: ApiVersion,
 }
 
-/// Channel a pending call waits on. The reader sends `Ok(frame)` on a reply, or
-/// `Err(reason)` if the connection died first (so the caller learns *why*, not
-/// just that it closed).
 type ReplyTx = oneshot::Sender<Result<Frame, String>>;
 
 pub struct Client {
@@ -119,9 +107,6 @@ pub struct Client {
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     next_call_id: AtomicU32,
     info: ServerInfo,
-    // Fires once with a human reason when the read loop ends (clean close, or the
-    // game crashing mid-handler). The connection provider awaits this to flip the
-    // UI to disconnected and show why, instead of silently looking connected.
     disconnect: AsyncMutex<Option<oneshot::Receiver<String>>>,
 }
 
@@ -130,8 +115,6 @@ impl Client {
         &self.info
     }
 
-    /// Resolves when the connection drops, with a human-readable reason. Consumed
-    /// once (by the connection provider); later callers wait forever.
     pub async fn wait_disconnect(&self) -> String {
         let rx = self.disconnect.lock().await.take();
         match rx {
@@ -153,7 +136,6 @@ impl Client {
             Frame::Response { payload, .. } => {
                 self.codec.decode(&payload).map_err(|e| format!("Deserialize: {e}"))
             }
-            // The server caught a handler error/panic and reported it instead of dying.
             Frame::Error { detail, module, code, .. } => {
                 Err(format!("Server reported an error [{module}-{code:04}]: {detail}"))
             }
@@ -177,8 +159,6 @@ impl Client {
             }
         }
 
-        // Ok(frame) on a real reply, Err(reason) when the reader saw the connection
-        // drop while we were waiting (the prime suspect for a server-side crash).
         match rx.await {
             Ok(result) => result,
             Err(_) => Err("Connection closed before the server replied.".into()),
@@ -293,8 +273,6 @@ fn spawn_reader(
     disconnect: oneshot::Sender<String>,
 ) {
     tokio::spawn(async move {
-        // Run until the connection ends, then carry out *why* so callers and the UI
-        // can tell a server crash apart from a clean shutdown.
         let reason = loop {
             match stream.next().await {
                 Some(Ok(Message::Binary(bytes))) => {
@@ -326,9 +304,6 @@ fn spawn_reader(
             }
         };
 
-        // Fail every in-flight call with the reason, so whichever request was being
-        // processed when it died surfaces "the server likely crashed handling this"
-        // instead of a bare "connection closed".
         {
             let mut map = pending.lock().unwrap();
             for (_call_id, tx) in map.drain() {

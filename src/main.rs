@@ -7,12 +7,17 @@ use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
 
+use components::bonds_view::BondsView;
+use components::catalog_provider::CatalogProvider;
 use components::connection_provider::ConnectionProvider;
-use components::force_view::ForceView;
+use components::cutscene_view::CutsceneView;
+use components::forces::ForceView;
+use components::map_view::MapView;
 use components::globals_view::GlobalsView;
 use components::mess_view::MessView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
+use components::script_view::ScriptView;
 use components::shell::Shell;
 use hooks::connection::use_connection;
 
@@ -37,14 +42,22 @@ pub enum Route {
     #[layout(Shell)]
         #[route("/")]
         Scene {},
+        #[route("/map")]
+        Map {},
         #[route("/forces")]
         Forces {},
+        #[route("/bonds")]
+        Bonds {},
         #[route("/globals")]
         Globals {},
         #[route("/procs")]
         Procs {},
         #[route("/mess")]
         Mess {},
+        #[route("/script")]
+        Script {},
+        #[route("/cutscene")]
+        Cutscene {},
 
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev")]
@@ -92,10 +105,6 @@ fn main() {
 
     let window = WindowBuilder::new().with_title("Divine Debugging Dragon");
 
-    // Build a standard Edit submenu so Cmd+C/V/X/A route through the
-    // macOS responder chain to the focused input field. Without these
-    // key equivalents registered in the menu bar, the shortcuts never
-    // fire inside input elements.
     let menu = Menu::new();
     let edit_menu = Submenu::new("Edit", true);
     edit_menu
@@ -119,60 +128,62 @@ fn main() {
 
 #[component]
 fn App() -> Element {
-    // Establish the connection signal once at the app root so it persists
-    // across route changes and is available to any descendant via context.
     use_connection();
 
     rsx! {
         document::Stylesheet { href: TAILWIND }
         document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; }}" }
         div { class: "flex flex-col h-screen text-white",
-            Router::<Route> {}
+            ConnectionProvider {
+                CatalogProvider {
+                    Router::<Route> {}
+                }
+            }
         }
     }
 }
 
 #[component]
 fn Scene() -> Element {
-    rsx! {
-        ConnectionProvider {
-            SceneView {}
-        }
-    }
+    rsx! { SceneView {} }
+}
+
+#[component]
+fn Map() -> Element {
+    rsx! { MapView {} }
 }
 
 #[component]
 fn Forces() -> Element {
-    rsx! {
-        ConnectionProvider {
-            ForceView {}
-        }
-    }
+    rsx! { ForceView {} }
+}
+
+#[component]
+fn Bonds() -> Element {
+    rsx! { BondsView {} }
 }
 
 #[component]
 fn Globals() -> Element {
-    rsx! {
-        ConnectionProvider {
-            GlobalsView {}
-        }
-    }
+    rsx! { GlobalsView { temporary_only: false } }
 }
 
 #[component]
 fn Procs() -> Element {
-    rsx! {
-        ConnectionProvider {
-            ProcsView {}
-        }
-    }
+    rsx! { ProcsView {} }
 }
 
 #[component]
 fn Mess() -> Element {
-    rsx! {
-        ConnectionProvider {
-            MessView {}
-        }
-    }
+    rsx! { MessView {} }
+}
+
+#[component]
+fn Script() -> Element {
+    rsx! { ScriptView {} }
+}
+
+#[component]
+fn Cutscene() -> Element {
+    rsx! { CutsceneView {} }
 }

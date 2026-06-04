@@ -31,6 +31,7 @@ pub fn DevGlobalRow() -> Element {
                             name: "G_GameTime".into(),
                             kind: "float".into(),
                             value: "14237.5".into(),
+                            temporary: false,
                         },
                         on_commit: |_| {},
                     }

@@ -96,7 +96,7 @@ pub fn MessPanel(props: MessPanelProps) -> Element {
     rsx! {
         div {
             "data-component": "MessPanel",
-            class: "flex flex-col h-full relative",
+            class: "flex flex-col flex-1 min-h-0 relative",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
                 h2 { class: "text-white font-bold text-sm", "Mess Browser" }
                 button {

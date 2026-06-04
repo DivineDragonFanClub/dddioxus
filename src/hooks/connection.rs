@@ -9,8 +9,6 @@ pub use super::client::{connect, discover_and_connect, ClientConfig};
 #[derive(Clone)]
 pub enum ConnectionState {
     Disconnected {
-        /// Why we're disconnected, when we know (e.g. the server crashed). `None`
-        /// for the initial state or a user-initiated disconnect.
         reason: Option<String>,
     },
     Connected {
@@ -38,7 +36,6 @@ impl ConnectionState {
         }
     }
 
-    /// Reason for the current disconnect, if any.
     pub fn disconnect_reason(&self) -> Option<&str> {
         match self {
             ConnectionState::Disconnected { reason } => reason.as_deref(),

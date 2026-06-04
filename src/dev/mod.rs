@@ -1,8 +1,3 @@
-//! Dev-only storybook-style previews for individual UI components.
-//!
-//! Gated behind `cfg(any(debug_assertions, feature = "dev"))` so release
-//! builds without the `dev` feature do not ship fixtures or stories.
-
 pub mod fixtures;
 pub mod stories;
 
@@ -12,7 +7,6 @@ use crate::Route;
 
 pub use stories::*;
 
-/// Returns true when the current route is one of the dev story pages.
 pub fn is_dev_route(route: &Route) -> bool {
     matches!(
         route,
@@ -95,7 +89,6 @@ fn DevNavItem(props: DevNavItemProps) -> Element {
     }
 }
 
-/// Landing page for /dev: short blurb + quick links.
 #[component]
 pub fn DevIndex() -> Element {
     rsx! {
@@ -115,7 +108,6 @@ pub fn DevIndex() -> Element {
     }
 }
 
-/// Shared layout for an individual story: title + one or more labeled sections.
 #[derive(PartialEq, Clone, Props)]
 pub struct StoryPageProps {
     pub title: &'static str,
@@ -134,7 +126,6 @@ pub fn StoryPage(props: StoryPageProps) -> Element {
     }
 }
 
-/// A single labeled state within a story.
 #[derive(PartialEq, Clone, Props)]
 pub struct StorySectionProps {
     pub label: &'static str,

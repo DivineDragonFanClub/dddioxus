@@ -102,31 +102,37 @@ pub fn globals_loaded() -> GetGlobalVariablesResponse {
                 name: "G_Gold".into(),
                 kind: "int".into(),
                 value: "12500".into(),
+                temporary: false,
             },
             GlobalVariable {
                 name: "G_BondFragments".into(),
                 kind: "int".into(),
                 value: "340".into(),
+                temporary: false,
             },
             GlobalVariable {
                 name: "G_ChapterIndex".into(),
                 kind: "int".into(),
                 value: "7".into(),
+                temporary: false,
             },
             GlobalVariable {
                 name: "G_CurrentMap".into(),
                 kind: "string".into(),
                 value: "M007_Fortress".into(),
+                temporary: true,
             },
             GlobalVariable {
                 name: "G_Difficulty".into(),
                 kind: "string".into(),
                 value: "Hard".into(),
+                temporary: false,
             },
             GlobalVariable {
                 name: "G_GameTime".into(),
                 kind: "float".into(),
                 value: "14237.5".into(),
+                temporary: true,
             },
         ],
     }
@@ -141,6 +147,7 @@ pub fn sample_global_variable() -> GlobalVariable {
         name: "G_Gold".into(),
         kind: "int".into(),
         value: "12500".into(),
+        temporary: false,
     }
 }
 
@@ -149,6 +156,7 @@ pub fn sample_global_variable_string() -> GlobalVariable {
         name: "G_PlayerName".into(),
         kind: "string".into(),
         value: "Alear".into(),
+        temporary: false,
     }
 }
 

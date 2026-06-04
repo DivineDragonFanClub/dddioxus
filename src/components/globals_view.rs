@@ -7,7 +7,7 @@ use crate::protocol::{
 use crate::rpc;
 
 #[component]
-pub fn GlobalsView() -> Element {
+pub fn GlobalsView(temporary_only: bool) -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetGlobalVariablesResponse, String>>);
@@ -49,6 +49,7 @@ pub fn GlobalsView() -> Element {
         GlobalsPanel {
             data: data(),
             loading: loading(),
+            temporary_only,
             on_refresh: move |_| fetch(),
             on_commit: on_commit,
         }
@@ -59,6 +60,7 @@ pub fn GlobalsView() -> Element {
 pub struct GlobalsPanelProps {
     pub data: Option<Result<GetGlobalVariablesResponse, String>>,
     pub loading: bool,
+    pub temporary_only: bool,
     pub on_refresh: EventHandler<()>,
     pub on_commit: EventHandler<SetGlobalVariableRequest>,
 }
@@ -70,9 +72,11 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
     let on_commit = props.on_commit;
 
     rsx! {
-        div { class: "flex flex-col h-full",
+        div { class: "flex flex-col flex-1 min-h-0",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm", "Global Variables" }
+                h2 { class: "text-white font-bold text-sm",
+                    if props.temporary_only { "Temporary Variables" } else { "Global Variables" }
+                }
                 input {
                     class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
                     placeholder: "Filter...",
@@ -90,11 +94,15 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
                 match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let query = search().to_lowercase();
-                        let filtered: Vec<_> = resp.variables.iter()
-                            .filter(|v| query.is_empty() || v.name.to_lowercase().contains(&query))
-                            .cloned()
+                        let temporary_only = props.temporary_only;
+                        let pool: Vec<_> = resp.variables.iter()
+                            .filter(|v| !temporary_only || v.temporary)
                             .collect();
-                        let total = resp.variables.len();
+                        let filtered: Vec<_> = pool.iter()
+                            .filter(|v| query.is_empty() || v.name.to_lowercase().contains(&query))
+                            .map(|v| (*v).clone())
+                            .collect();
+                        let total = pool.len();
                         let shown = filtered.len();
                         rsx! {
                             p { class: "text-gray-500 mb-2",

@@ -9,6 +9,7 @@ pub struct GlobalVariable {
     pub name: String,
     pub kind: String,
     pub value: String,
+    pub temporary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

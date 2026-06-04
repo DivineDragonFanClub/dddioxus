@@ -12,6 +12,7 @@ pub fn DevGlobalsPanel() -> Element {
                     GlobalsPanel {
                         data: Some(Ok(fixtures::globals_loaded())),
                         loading: false,
+                        temporary_only: false,
                         on_refresh: |_| {},
                         on_commit: |_| {},
                     }
@@ -22,6 +23,7 @@ pub fn DevGlobalsPanel() -> Element {
                     GlobalsPanel {
                         data: Some(Ok(fixtures::globals_loaded())),
                         loading: true,
+                        temporary_only: false,
                         on_refresh: |_| {},
                         on_commit: |_| {},
                     }
@@ -32,6 +34,7 @@ pub fn DevGlobalsPanel() -> Element {
                     GlobalsPanel {
                         data: Some(Ok(fixtures::globals_empty())),
                         loading: false,
+                        temporary_only: false,
                         on_refresh: |_| {},
                         on_commit: |_| {},
                     }
@@ -42,6 +45,7 @@ pub fn DevGlobalsPanel() -> Element {
                     GlobalsPanel {
                         data: None,
                         loading: false,
+                        temporary_only: false,
                         on_refresh: |_| {},
                         on_commit: |_| {},
                     }
@@ -52,6 +56,7 @@ pub fn DevGlobalsPanel() -> Element {
                     GlobalsPanel {
                         data: Some(Err("Not connected".into())),
                         loading: false,
+                        temporary_only: false,
                         on_refresh: |_| {},
                         on_commit: |_| {},
                     }

@@ -1,34 +1,17 @@
-//! Reusable numeric / value fields for the Inspector and beyond.
-//!
-//! `DragFloat` is the single-float primitive (hover-drag, shift/ctrl
-//! modifiers, canonical formatting, optional wrapping). `Vec3Editor`
-//! lives in its own submodule and composes three `DragFloat`s plus
-//! an OS-clipboard copy/paste menu.
-
 use dioxus::prelude::*;
 use dioxus_elements::input_data::MouseButton;
 
 pub mod vec3;
 pub use vec3::Vec3Editor;
 
-/// Units per pixel of horizontal drag. Matches Unity's default feel
-/// for float fields (~0.03 per pixel).
 const DEFAULT_DRAG_SENSITIVITY: f32 = 0.03;
-/// Shift: 10x — coarse drag for broad strokes.
 const COARSE_MULTIPLIER: f32 = 10.0;
-/// Ctrl/Cmd: 0.1x — fine drag for precision.
 const FINE_MULTIPLIER: f32 = 0.1;
 
-/// Format a float with 4 decimal places, always. No trailing-zero
-/// trim — keeping the fixed width makes vertical alignment across
-/// rows stable and matches Unity's default transform inspector look.
 pub(crate) fn fmt_float(v: f32) -> String {
     format!("{:.4}", v)
 }
 
-/// If `wrap` is `Some(w)` with `w > 0`, normalize `v` into `[0, w)`.
-/// Used for angle fields — rotation values stay within 0..360 regardless
-/// of how far the user drags.
 pub(crate) fn apply_wrap(v: f32, wrap: Option<f32>) -> f32 {
     match wrap {
         Some(w) if w > 0.0 => ((v % w) + w) % w,
@@ -36,16 +19,6 @@ pub(crate) fn apply_wrap(v: f32, wrap: Option<f32>) -> f32 {
     }
 }
 
-/// A single-float numeric input with a drag handle.
-///
-/// The `label` is rendered as a small colored letter before the input;
-/// hovering it shows the horizontal-resize cursor, and click-and-drag
-/// changes the value live. Typing + Enter/blur also works.
-///
-/// Fires `on_change` on every drag frame and on every text commit.
-/// The underlying text state is local to this component, so containers
-/// that are fire-and-forget (like `TransformInspector`) stay in sync
-/// with what the user is editing without needing to refetch.
 #[derive(PartialEq, Clone, Props)]
 pub struct DragFloatProps {
     pub value: f32,
@@ -56,8 +29,6 @@ pub struct DragFloatProps {
     pub color: &'static str,
     #[props(default = DEFAULT_DRAG_SENSITIVITY)]
     pub sensitivity: f32,
-    /// If `Some(w)`, the value is wrapped into `[0, w)` before display
-    /// and before `on_change` fires. Intended for angle fields.
     #[props(default)]
     pub wrap: Option<f32>,
 }
@@ -67,10 +38,6 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
     let wrap = props.wrap;
     let mut text = use_signal(|| fmt_float(apply_wrap(props.value, wrap)));
     let mut last_value = use_signal(|| props.value);
-    // (last_x, accumulated_value) — we accumulate frame-by-frame so holding
-    // shift/ctrl mid-drag just changes pace from that point on, with no
-    // discontinuity in the displayed value. The accumulator stores the
-    // raw (unwrapped) value; we only wrap on display and on fire.
     let mut drag_state = use_signal(|| None::<(f64, f32)>);
 
     if (*last_value.read() - props.value).abs() > f32::EPSILON {
@@ -94,21 +61,11 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
 
     rsx! {
         if !props.label.is_empty() {
-            // Padding + negative margin (with content-box sizing so
-            // padding genuinely adds to the hitbox) gives the axis
-            // letter a generous ~28x24 click target while the outer
-            // layout still treats it as a 12px-wide letter. The drag
-            // now grabs reliably even if the cursor isn't pixel-
-            // perfectly on top of the glyph.
             span {
                 class: "{props.color} text-xs font-bold w-3 select-none",
                 style: "cursor: ew-resize; box-sizing: content-box; padding: 6px 8px; margin: -6px -8px; text-align: center;",
                 title: "Drag to change · Shift: coarse · Ctrl/⌘: fine",
                 onmousedown: move |e: Event<MouseData>| {
-                    // prevent_default stops the browser from starting a
-                    // text selection when the user presses on the label —
-                    // otherwise the drag highlights every element the
-                    // cursor moves across.
                     e.prevent_default();
                     e.stop_propagation();
                     let start = text().parse::<f32>().unwrap_or(fallback);
@@ -128,9 +85,6 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
                 class: "fixed inset-0 z-50",
                 style: "cursor: ew-resize",
                 onmousemove: move |e: Event<MouseData>| {
-                    // If the user released the button outside the window
-                    // and the cursor has come back in with no button held,
-                    // close out the drag cleanly.
                     if !e.held_buttons().contains(MouseButton::Primary) {
                         drag_state.set(None);
                         return;
