@@ -54,6 +54,7 @@ jobs:
 
       - uses: cargo-bins/cargo-binstall@main
       - run: cargo binstall -y dioxus-cli@0.7.5
+      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Bundle both arches
         run: |
