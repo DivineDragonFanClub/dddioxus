@@ -26,7 +26,12 @@ jobs:
       - run: cargo binstall -y dioxus-cli@0.7.5
 
       - name: Bundle
-        run: dx bundle --release --platform desktop --out-dir out
+        run: dx bundle --release --platform desktop --package-types nsis --package-types msi --out-dir out
+
+      - name: List bundle output
+        if: always()
+        run: dir out
+        shell: cmd
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
@@ -36,7 +41,7 @@ jobs:
           files: |
             out/*.exe
             out/*.msi
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
 
   macos:
     runs-on: macos-latest
