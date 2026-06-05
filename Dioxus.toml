@@ -10,11 +10,12 @@ default_platform = "desktop"
 # `build` & `serve` dist path
 out_dir = "dist"
 
-[bundle]
-identifier = "com.divinedragonfanclub.dddioxus"
-
 # assets file folder
 asset_dir = "assets"
+
+[bundle]
+identifier = "com.divinedragonfanclub.dddioxus"
+publisher = "DivineDragonFanClub"
 
 [web.app]
 
