@@ -101,7 +101,9 @@ pub fn ProcsPanel(props: ProcsPanelProps) -> Element {
     let dragging = drag_state().is_some();
 
     rsx! {
-        div { class: "flex flex-col flex-1 min-h-0 relative",
+        div {
+            "data-component": "ProcsPanel",
+            class: "flex flex-col flex-1 min-h-0 relative",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
                 h2 { class: "text-white font-bold text-sm", "Proc Tree" }
                 button {

@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
-    EditCommandRequest, GetCutsceneRequest, GetCutsceneResponse, JumpCutsceneRequest, RemoveCommandRequest,
+    EditCommandRequest, GetCutsceneRequest, GetCutsceneResponse, GetSceneNameRequest, JumpCutsceneRequest,
+    RemoveCommandRequest, SceneInfo, SceneNode,
 };
 use crate::rpc;
 
@@ -92,6 +93,8 @@ pub fn CutsceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetCutsceneResponse, String>>);
+    let mut cameras = use_signal(Vec::<String>::new);
+    use_context_provider(|| CameraCatalog(cameras));
     let mut search = use_signal(String::new);
     let mut mounted = use_signal(|| false);
 
@@ -110,6 +113,13 @@ pub fn CutsceneView() -> Element {
     if !mounted() {
         mounted.set(true);
         fetch();
+        // Grab the scene's cameras once when the view opens; reused by every
+        // Character Camera row's dropdown.
+        spawn(async move {
+            if let Ok(scene) = rpc::call(&conn, GetSceneNameRequest).await {
+                cameras.set(collect_cameras(&scene.scenes));
+            }
+        });
     }
 
     let jump = move |(index, label): (i32, String)| {
@@ -280,25 +290,48 @@ fn CommandRow(props: CommandRowProps) -> Element {
     };
 
     let raw_for_edit = cmd.raw.clone();
+    let save_label = label.clone();
+    let save_side = side.clone();
 
     rsx! {
         div { class: "flex items-baseline gap-2 ml-10",
             if editing() {
-                input {
-                    class: "flex-1 px-1 bg-gray-900 text-gray-100 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none",
-                    value: "{draft}",
-                    autofocus: true,
-                    oninput: move |e| draft.set(e.value()),
-                    onkeydown: {
-                        let mut commit = commit.clone();
-                        move |e| {
-                            if e.key() == Key::Enter {
-                                commit();
-                            } else if e.key() == Key::Escape {
-                                editing.set(false);
+                if cmd.name.as_str() == "キャラカメラ" {
+                    CharacterCameraEditor {
+                        raw: cmd.raw.clone(),
+                        on_save: move |text: String| {
+                            editing.set(false);
+                            let (label, side) = (save_label.clone(), save_side.clone());
+                            spawn(async move {
+                                if rpc::call(&conn, EditCommandRequest { label, side, index, text })
+                                    .await
+                                    .is_ok()
+                                {
+                                    if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
+                                        data.set(Some(Ok(c)));
+                                    }
+                                }
+                            });
+                        },
+                        on_cancel: move |_| editing.set(false),
+                    }
+                } else {
+                    input {
+                        class: "flex-1 px-1 bg-gray-900 text-gray-100 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none",
+                        value: "{draft}",
+                        autofocus: true,
+                        oninput: move |e| draft.set(e.value()),
+                        onkeydown: {
+                            let mut commit = commit.clone();
+                            move |e| {
+                                if e.key() == Key::Enter {
+                                    commit();
+                                } else if e.key() == Key::Escape {
+                                    editing.set(false);
+                                }
                             }
-                        }
-                    },
+                        },
+                    }
                 }
             } else {
                 span { class: "shrink-0", style: "color: {name_color}", title: "{cmd.name}", "{localize_cmd(&cmd.name)}" }
@@ -319,6 +352,172 @@ fn CommandRow(props: CommandRowProps) -> Element {
                     title: "Remove",
                     onclick: remove,
                     "✕"
+                }
+            }
+        }
+    }
+}
+
+/// Camera names sourced once from the live scene (children of `/…/Cameras`),
+/// shared via context so each Character Camera row can populate its dropdown.
+#[derive(Clone, Copy)]
+struct CameraCatalog(Signal<Vec<String>>);
+
+struct CmdParts {
+    name: String,
+    open: char,
+    close: char,
+    sep: String,
+    args: Vec<String>,
+}
+
+/// Split a raw command line `name(arg, arg, …)` into its parts, preserving the
+/// original bracket/comma style (full-width 　（），or half-width) so the line we
+/// send back to the game re-parses identically.
+fn split_cmd(raw: &str) -> Option<CmdParts> {
+    let raw = raw.trim();
+    let open_idx = raw.find(['(', '（'])?;
+    let name = raw[..open_idx].trim().to_string();
+    let open = raw[open_idx..].chars().next()?;
+    let close = if open == '（' { '）' } else { ')' };
+    let after_open = &raw[open_idx + open.len_utf8()..];
+    let close_idx = after_open.rfind(close).unwrap_or(after_open.len());
+    let inner = &after_open[..close_idx];
+
+    let sep = match inner.find(['，', ',']) {
+        Some(pos) => {
+            let c = inner[pos..].chars().next().unwrap();
+            let mut s = String::new();
+            s.push(c);
+            if inner[pos + c.len_utf8()..].starts_with(' ') {
+                s.push(' ');
+            }
+            s
+        }
+        None => "，".to_string(),
+    };
+    let args = inner.split(['，', ',']).map(|s| s.trim().to_string()).collect();
+
+    Some(CmdParts { name, open, close, sep, args })
+}
+
+/// Collect the camera object names found under any `Cameras` node in the scene
+/// (e.g. the leaves under `/RootObject/Cameras/CharacterBase` and `…/SceneBase`).
+fn collect_cameras(scenes: &[SceneInfo]) -> Vec<String> {
+    fn leaves(node: &SceneNode, out: &mut Vec<String>) {
+        if node.children.is_empty() {
+            out.push(node.name.clone());
+        } else {
+            for child in &node.children {
+                leaves(child, out);
+            }
+        }
+    }
+    fn find(node: &SceneNode, out: &mut Vec<String>) {
+        if node.name == "Cameras" {
+            for child in &node.children {
+                leaves(child, out);
+            }
+        } else {
+            for child in &node.children {
+                find(child, out);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for scene in scenes {
+        for node in &scene.objects {
+            find(node, &mut out);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn arg_label(index: usize) -> &'static str {
+    ["Camera", "Character", "Camera Anim"].get(index).copied().unwrap_or("Arg")
+}
+
+#[derive(PartialEq, Clone, Props)]
+struct CharacterCameraEditorProps {
+    raw: String,
+    on_save: EventHandler<String>,
+    on_cancel: EventHandler<()>,
+}
+
+/// Bespoke editor for the キャラカメラ (Character Camera) command. The first
+/// argument (the camera) becomes a dropdown sourced from the live scene's
+/// cameras; the remaining arguments stay free-text for now.
+#[component]
+fn CharacterCameraEditor(props: CharacterCameraEditorProps) -> Element {
+    let cameras = use_context::<CameraCatalog>().0;
+
+    let parts = split_cmd(&props.raw);
+    let name = parts.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+    let open = parts.as_ref().map(|p| p.open).unwrap_or('（');
+    let close = parts.as_ref().map(|p| p.close).unwrap_or('）');
+    let sep = parts.as_ref().map(|p| p.sep.clone()).unwrap_or_else(|| "，".to_string());
+    let init_args = parts.map(|p| p.args).unwrap_or_else(|| vec![props.raw.clone()]);
+
+    let mut args = use_signal(|| init_args);
+
+    let on_save = props.on_save;
+    let on_cancel = props.on_cancel;
+
+    let save = move |_| {
+        let line = format!("{}{}{}{}", name, open, args().join(&sep), close);
+        on_save.call(line);
+    };
+
+    let field_class = "flex-1 px-1 py-0.5 bg-gray-800 text-gray-100 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-xs";
+
+    rsx! {
+        div { class: "flex flex-col gap-1 w-full bg-gray-900 rounded p-2 border border-gray-700",
+            for i in 0..args().len() {
+                {
+                    let lbl = arg_label(i);
+                    let current = args.read().get(i).cloned().unwrap_or_default();
+                    let cams = cameras();
+                    let use_dropdown = i == 0 && !cams.is_empty();
+                    let show_current = use_dropdown && !current.is_empty() && !cams.contains(&current);
+                    rsx! {
+                        div { key: "{i}", class: "flex items-center gap-2",
+                            span { class: "text-gray-500 text-[10px] w-24 shrink-0 text-right", "{lbl}" }
+                            if use_dropdown {
+                                select {
+                                    class: "{field_class}",
+                                    onchange: move |e| args.with_mut(|a| a[i] = e.value()),
+                                    option { value: "", selected: current.is_empty(), "— select camera —" }
+                                    if show_current {
+                                        option { value: "{current}", selected: true, "{current} (not in scene)" }
+                                    }
+                                    for cam in cams.clone() {
+                                        option { key: "{cam}", value: "{cam}", selected: cam == current, "{cam}" }
+                                    }
+                                }
+                            } else {
+                                input {
+                                    class: "{field_class}",
+                                    value: "{current}",
+                                    oninput: move |e| args.with_mut(|a| a[i] = e.value()),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "flex gap-2 justify-end mt-1",
+                button {
+                    class: "text-gray-400 hover:text-gray-200 text-xs px-2",
+                    onclick: move |_| on_cancel.call(()),
+                    "Cancel"
+                }
+                button {
+                    class: "text-white bg-indigo-500 hover:bg-indigo-600 rounded text-xs px-3 py-0.5",
+                    onclick: save,
+                    "Save"
                 }
             }
         }

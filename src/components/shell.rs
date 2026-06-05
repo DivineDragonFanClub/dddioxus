@@ -14,7 +14,9 @@ pub fn Shell() -> Element {
     let _ = &current;
 
     rsx! {
-        div { class: "flex flex-1 overflow-hidden min-h-0",
+        div {
+            "data-component": "Shell",
+            class: "flex flex-1 overflow-hidden min-h-0",
             if on_dev {
                 {dev_sidebar()}
             } else {

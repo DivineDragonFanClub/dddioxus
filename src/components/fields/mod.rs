@@ -40,7 +40,13 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
     let mut last_value = use_signal(|| props.value);
     let mut drag_state = use_signal(|| None::<(f64, f32)>);
 
-    if (*last_value.read() - props.value).abs() > f32::EPSILON {
+    // Skip incoming `value` updates while the user is dragging this field.
+    // Without this guard, watch-mode polling (which streams server values
+    // every frame) would yank the visible text away from the user's drag.
+    // `peek()` deliberately avoids subscribing — we only need a snapshot.
+    if drag_state.peek().is_none()
+        && (*last_value.read() - props.value).abs() > f32::EPSILON
+    {
         last_value.set(props.value);
         text.set(fmt_float(apply_wrap(props.value, wrap)));
     }

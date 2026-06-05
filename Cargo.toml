@@ -13,6 +13,13 @@ dioxus = { version = "0.7", features = ["desktop", "router"] }
 # OS clipboard access
 arboard = "3"
 
+# Debug-only HTTP/MCP bridge that lets Claude Code inspect the running
+# app via /dom, /query, /validate-classes, etc. Always compiled (tiny
+# crate) but the bridge hook only runs in debug / `dev` builds.
+# Pointed at the DogeThis fork which has the MCP handshake fix until
+# it's merged upstream.
+dioxus-inspector = { git = "https://github.com/DogeThis/dioxus-inspector", branch = "master" }
+
 # Sora protocol
 sora-protocol = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }
 sora-codecs = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }

@@ -72,7 +72,9 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
     let on_commit = props.on_commit;
 
     rsx! {
-        div { class: "flex flex-col flex-1 min-h-0",
+        div {
+            "data-component": "GlobalsPanel",
+            class: "flex flex-col flex-1 min-h-0",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
                 h2 { class: "text-white font-bold text-sm",
                     if props.temporary_only { "Temporary Variables" } else { "Global Variables" }

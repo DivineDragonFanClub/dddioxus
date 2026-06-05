@@ -119,7 +119,9 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     if let (true, Some(info)) = (is_connected, server_info) {
         let conn_key = format!("{}:{}", info.host, info.port);
         rsx! {
-            div { class: "flex flex-col h-full",
+            div {
+                "data-component": "ConnectionProvider",
+                class: "flex flex-col h-full",
                 div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300 shrink-0",
                     span { "Connected to {info.host}:{info.port} (v{info.api_version})" }
                     button {

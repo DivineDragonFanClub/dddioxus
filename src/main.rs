@@ -129,6 +129,9 @@ fn main() {
 #[component]
 fn App() -> Element {
     use_connection();
+    // Debug/dev-only: start the dioxus-inspector HTTP bridge so Claude
+    // Code (and other MCP-aware tooling) can read the DOM, run JS, etc.
+    use_inspector_bridge();
 
     rsx! {
         document::Stylesheet { href: TAILWIND }
@@ -142,6 +145,28 @@ fn App() -> Element {
         }
     }
 }
+
+/// Start the dioxus-inspector HTTP bridge on port 9999. Only active
+/// in debug or `dev`-feature builds; otherwise a no-op.
+#[cfg(any(debug_assertions, feature = "dev"))]
+fn use_inspector_bridge() {
+    use dioxus_inspector::{start_bridge, EvalResponse};
+    use_hook(|| {
+        let mut eval_rx = start_bridge(9999, "dddioxus");
+        spawn(async move {
+            while let Some(cmd) = eval_rx.recv().await {
+                let response = match document::eval(&cmd.script).await {
+                    Ok(val) => EvalResponse::success(val.to_string()),
+                    Err(e) => EvalResponse::error(e.to_string()),
+                };
+                let _ = cmd.response_tx.send(response);
+            }
+        });
+    });
+}
+
+#[cfg(not(any(debug_assertions, feature = "dev")))]
+fn use_inspector_bridge() {}
 
 #[component]
 fn Scene() -> Element {
