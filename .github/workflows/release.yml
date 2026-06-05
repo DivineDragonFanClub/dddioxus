@@ -53,11 +53,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall -y dioxus-cli@0.7.5
-      - run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install dioxus CLI
+        run: |
+          cargo binstall -y dioxus-cli@0.7.5
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          ls -la "$HOME/.cargo/bin"
+          "$HOME/.cargo/bin/dx" --version
 
       - name: Bundle both arches
         run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
           dx bundle --release --platform desktop --package-types macos \
             --target aarch64-apple-darwin --out-dir out-arm
           dx bundle --release --platform desktop --package-types macos \
