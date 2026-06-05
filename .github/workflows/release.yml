@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+      prerelease:
+        description: "Mark the release as a prerelease"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall -y dioxus-cli@0.7.5
+
+      - name: Bundle
+        run: dx bundle --release --platform desktop --out-dir out
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            out/*.exe
+            out/*.msi
+          fail_on_unmatched_files: true
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: cargo-bins/cargo-binstall@main
+      - run: cargo binstall -y dioxus-cli@0.7.5
+
+      - name: Bundle both arches
+        run: |
+          dx bundle --release --platform desktop --package-types macos \
+            --target aarch64-apple-darwin --out-dir out-arm
+          dx bundle --release --platform desktop --package-types macos \
+            --target x86_64-apple-darwin --out-dir out-x64
+
+      - name: Merge into a universal .app and pack a .dmg
+        run: |
+          set -euo pipefail
+          app_name=$(basename "$(ls -d out-arm/*.app | head -1)")
+          bin=$(ls "out-arm/$app_name/Contents/MacOS" | head -1)
+          lipo -create \
+            "out-arm/$app_name/Contents/MacOS/$bin" \
+            "out-x64/$app_name/Contents/MacOS/$bin" \
+            -output "out-arm/$app_name/Contents/MacOS/$bin"
+          lipo -info "out-arm/$app_name/Contents/MacOS/$bin"
+
+          mkdir -p dmgroot
+          cp -R "out-arm/$app_name" dmgroot/
+          ln -s /Applications dmgroot/Applications
+          mkdir -p out
+          dmg_name="${app_name%.app}-universal.dmg"
+          hdiutil create -volname "${app_name%.app}" -srcfolder dmgroot \
+            -ov -format UDZO "out/$dmg_name"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          prerelease: ${{ inputs.prerelease }}
+          files: out/*.dmg
+          fail_on_unmatched_files: true
