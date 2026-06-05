@@ -23,7 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - uses: cargo-bins/cargo-binstall@main
-      - run: cargo binstall -y dioxus-cli@0.7.5
+      - run: cargo binstall -y --force dioxus-cli@0.7.5
 
       - name: Bundle
         run: dx bundle --release --platform desktop --package-types nsis --package-types msi --out-dir out
@@ -55,9 +55,8 @@ jobs:
       - uses: cargo-bins/cargo-binstall@main
       - name: Install dioxus CLI
         run: |
-          cargo binstall -y dioxus-cli@0.7.5
+          cargo binstall -y --force dioxus-cli@0.7.5
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          ls -la "$HOME/.cargo/bin"
           "$HOME/.cargo/bin/dx" --version
 
       - name: Bundle both arches
