@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use dioxus::prelude::*;
 
+use super::scene_view::RevealRequest;
 use crate::protocol::{SceneInfo, SceneNode};
 
 #[derive(PartialEq, Clone, Props)]
@@ -24,7 +27,12 @@ fn count_nodes(nodes: &[SceneNode]) -> usize {
 #[component]
 pub fn SceneTree(props: SceneTreeProps) -> Element {
     let mut search = use_signal(String::new);
-    let query = search().to_lowercase();
+    // Debounced copy of `search`: the input updates `search` instantly (so typing
+    // stays responsive), but the recursive tree filter only runs off `applied`,
+    // ~150ms after the user stops typing. `debounce_epoch` cancels superseded keystrokes.
+    let mut applied = use_signal(String::new);
+    let mut debounce_epoch = use_signal(|| 0u64);
+    let query = applied().to_lowercase();
     let searching = !query.is_empty();
 
     let total: usize = props.scenes.iter().map(|s| count_nodes(&s.objects)).sum();
@@ -33,16 +41,48 @@ pub fn SceneTree(props: SceneTreeProps) -> Element {
         div {
             "data-component": "SceneTree",
             class: "p-4 font-mono text-sm",
-            div { class: "flex items-center gap-3 mb-3",
-                span { class: "text-gray-500 text-xs",
-                    "{props.scenes.len()} scene(s), {total} nodes"
+            div {
+                class: "sticky top-0 z-10 bg-gray-800 -mx-4 -mt-4 mb-1 px-4 pt-4 pb-3 border-b border-gray-700",
+                div { class: "flex items-center gap-3 mb-2",
+                    span { class: "text-gray-500 text-xs",
+                        "{props.scenes.len()} scene(s), {total} nodes"
+                    }
                 }
-            }
-            input {
-                class: "w-full px-3 py-1.5 mb-3 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                placeholder: "Search nodes...",
-                value: "{search}",
-                oninput: move |e| search.set(e.value()),
+                div { class: "relative",
+                    input {
+                        class: "w-full px-3 py-1.5 pr-8 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
+                        placeholder: "Search nodes...",
+                        "autocomplete": "off",
+                        "autocapitalize": "off",
+                        "autocorrect": "off",
+                        "spellcheck": "false",
+                        value: "{search}",
+                        oninput: move |e| {
+                            let val = e.value();
+                            search.set(val.clone());
+                            let epoch = debounce_epoch() + 1;
+                            debounce_epoch.set(epoch);
+                            spawn(async move {
+                                tokio::time::sleep(Duration::from_millis(150)).await;
+                                if debounce_epoch() == epoch {
+                                    applied.set(val);
+                                }
+                            });
+                        },
+                    }
+                    if !search().is_empty() {
+                        button {
+                            class: "absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-white text-sm leading-none",
+                            "aria-label": "Clear search",
+                            onclick: move |_| {
+                                search.set(String::new());
+                                applied.set(String::new());
+                                debounce_epoch.set(debounce_epoch() + 1);
+                            },
+                            "✕"
+                        }
+                    }
+                }
             }
             for (si, scene) in props.scenes.iter().enumerate() {
                 div { key: "{si}", class: "mb-4",
@@ -96,11 +136,37 @@ struct TreeNodeProps {
 #[component]
 fn TreeNode(props: TreeNodeProps) -> Element {
     let has_children = !props.node.children.is_empty();
-    let mut expanded = use_signal(|| props.filter.is_some());
 
-    let toggle_expand = move |_| {
+    // Effective open state is reactive: open while searching, or when the selected
+    // node is this node or somewhere in its subtree (so clearing the search keeps the
+    // selected node's path revealed — its siblings via the open ancestors, its children
+    // via itself). A manual click overrides until the user toggles again.
+    let reveals_selection = props.selected_path.as_deref().map_or(false, |sel| {
+        props.node.path == sel || sel.starts_with(&format!("{}/", props.node.path))
+    });
+    let mut user_open = use_signal(|| None::<bool>);
+
+    // One-shot reveal: when the Inspector's "see in tree" link bumps the reveal
+    // counter, nodes on the selected path drop their manual collapse so the path
+    // force-expands for that click only (the user can still re-collapse afterward).
+    let mut seen_reveal = use_signal(|| 0u32);
+    if let Some(RevealRequest(nonce)) = try_consume_context::<RevealRequest>() {
+        if nonce() != seen_reveal() {
+            seen_reveal.set(nonce());
+            if reveals_selection {
+                user_open.set(None);
+            }
+        }
+    }
+
+    // Manual toggle wins; otherwise open while searching or on the selected path.
+    let auto_open = props.filter.is_some() || reveals_selection;
+    let is_open = user_open().unwrap_or(auto_open);
+
+    let toggle_expand = move |evt: Event<MouseData>| {
         if has_children {
-            expanded.toggle();
+            evt.stop_propagation();
+            user_open.set(Some(!is_open));
         }
     };
 
@@ -113,7 +179,7 @@ fn TreeNode(props: TreeNodeProps) -> Element {
 
     let icon = if !has_children {
         "  "
-    } else if expanded() {
+    } else if is_open {
         "▼ "
     } else {
         "▶ "
@@ -154,6 +220,7 @@ fn TreeNode(props: TreeNodeProps) -> Element {
         div {
             div {
                 class: "flex items-center py-0.5 hover:bg-gray-700 rounded px-1 {cursor} {bg} group",
+                "data-tree-selected": "{is_selected}",
                 onclick: select_node,
                 span {
                     class: "text-gray-500 text-xs w-4",
@@ -172,7 +239,7 @@ fn TreeNode(props: TreeNodeProps) -> Element {
                     "{toggle_icon}"
                 }
             }
-            if has_children && expanded() {
+            if has_children && is_open {
                 div { class: "ml-4 border-l border-gray-700 pl-2",
                     for (i, child) in visible_children.iter().enumerate() {
                         TreeNode {

@@ -6,6 +6,12 @@ use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
 
+/// One-shot "reveal the selected node in the scene tree" request. The Inspector's
+/// path link bumps this counter; TreeNodes on the selected path drop their manual
+/// collapse when it changes, force-expanding the path for that one click only.
+#[derive(Clone, Copy)]
+pub struct RevealRequest(pub Signal<u32>);
+
 #[component]
 pub fn SceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
@@ -13,6 +19,8 @@ pub fn SceneView() -> Element {
     let mut data = use_signal(|| None::<Result<GetSceneNameResponse, String>>);
     let mut selected_path = use_signal(|| None::<String>);
     let mut mounted = use_signal(|| false);
+    let reveal_request = use_signal(|| 0u32);
+    use_context_provider(|| RevealRequest(reveal_request));
 
     let mut fetch = move || {
         if loading() {
