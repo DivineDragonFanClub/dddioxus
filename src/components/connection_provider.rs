@@ -1,28 +1,11 @@
-use std::fs;
-use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 use dioxus::prelude::*;
 
-use crate::hooks::connection::{connect, discover_and_connect, ClientConfig, ConnectionState};
+use crate::hooks::connection::{connect, watch_beacons, ClientConfig, ConnectionState, DiscoveredServer};
 
-fn last_host_path() -> Option<PathBuf> {
-    std::env::var("HOME")
-        .ok()
-        .map(|h| PathBuf::from(h).join(".dddioxus_last_host"))
-}
-
-fn load_last_host() -> String {
-    last_host_path()
-        .and_then(|p| fs::read_to_string(&p).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
-}
-
-fn save_last_host(value: &str) {
-    if let Some(path) = last_host_path() {
-        let _ = fs::write(&path, value.trim());
-    }
-}
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(PartialEq, Clone, Props)]
 pub struct ConnectionProviderProps {
@@ -33,84 +16,67 @@ pub struct ConnectionProviderProps {
 
 #[component]
 pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
-    let mut connecting = use_signal(|| false);
-    let mut error_msg: Signal<Option<String>> = use_signal(|| None);
-    let mut manual_input = use_signal(load_last_host);
+    let mut servers: Signal<Vec<DiscoveredServer>> = use_signal(Vec::new);
+    let mut connecting_to: Signal<Option<DiscoveredServer>> = use_signal(|| None);
+    let mut connect_error: Signal<Option<String>> = use_signal(|| None);
+    let mut listen_error: Signal<Option<String>> = use_signal(|| None);
     let mut conn = use_context::<Signal<ConnectionState>>();
     let config = props.config.clone();
-    let manual_config = config.clone();
+
+    // Listen for server beacons for the whole lifetime of the app.
+    let watch_config = config.clone();
+    use_hook(move || {
+        spawn(async move {
+            let mut rx = watch_beacons(&watch_config);
+            while let Some(update) = rx.recv().await {
+                match update {
+                    Ok(list) => {
+                        servers.set(list);
+                        listen_error.set(None);
+                    }
+                    Err(err) => listen_error.set(Some(err)),
+                }
+            }
+        });
+    });
 
     use_effect(move || {
         if let Some(client) = conn.read().client().cloned() {
             spawn(async move {
                 let reason = client.wait_disconnect().await;
-                conn.set(ConnectionState::Disconnected { reason: Some(reason) });
+                // Only report the loss if this client is still the active
+                // one — a session we already left shouldn't kick us out of
+                // a newer connection.
+                let is_current = conn.peek().client().is_some_and(|c| Arc::ptr_eq(c, &client));
+                if is_current {
+                    conn.set(ConnectionState::Disconnected { reason: Some(reason) });
+                }
             });
         }
     });
 
-    let auto_connect = move |_| {
-        if connecting() {
+    let connect_to = use_callback(move |server: DiscoveredServer| {
+        if connecting_to().is_some() {
             return;
         }
-        connecting.set(true);
-        error_msg.set(None);
-
+        connecting_to.set(Some(server.clone()));
+        connect_error.set(None);
         let cfg = config.clone();
         spawn(async move {
-            match discover_and_connect(&cfg).await {
-                Ok(client) => {
+            match tokio::time::timeout(CONNECT_TIMEOUT, connect(&server.host, server.port, &cfg)).await {
+                Ok(Ok(client)) => {
                     let info = client.info().clone();
                     conn.set(ConnectionState::Connected { client, info });
                 }
-                Err(err) => error_msg.set(Some(err)),
+                Ok(Err(err)) => connect_error.set(Some(err)),
+                Err(_) => connect_error.set(Some(format!(
+                    "Timed out connecting to {}:{}",
+                    server.host, server.port
+                ))),
             }
-            connecting.set(false);
-        });
-    };
-
-    let manual_connect = use_callback(move |_: ()| {
-        if connecting() {
-            return;
-        }
-        let raw = manual_input().trim().to_string();
-        if raw.is_empty() {
-            error_msg.set(Some("Enter host:port (e.g. 10.0.0.120:58391)".into()));
-            return;
-        }
-        let (host, port) = match raw.rsplit_once(':') {
-            Some((h, p)) => match p.parse::<u16>() {
-                Ok(port) => (h.to_string(), port),
-                Err(_) => {
-                    error_msg.set(Some(format!("Invalid port: {p}")));
-                    return;
-                }
-            },
-            None => {
-                error_msg.set(Some("Expected host:port".into()));
-                return;
-            }
-        };
-        connecting.set(true);
-        error_msg.set(None);
-        let cfg = manual_config.clone();
-        let saved = raw;
-        spawn(async move {
-            match connect(&host, port, &cfg).await {
-                Ok(client) => {
-                    let info = client.info().clone();
-                    save_last_host(&saved);
-                    conn.set(ConnectionState::Connected { client, info });
-                }
-                Err(err) => error_msg.set(Some(err)),
-            }
-            connecting.set(false);
+            connecting_to.set(None);
         });
     });
-
-    let disconnect = move |_| {
-        conn.set(ConnectionState::Disconnected { reason: None });
-    };
 
     let is_connected = conn.read().is_open();
     let server_info = conn.read().server_info().cloned();
@@ -126,14 +92,34 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                     span { "Connected to {info.host}:{info.port} (v{info.api_version})" }
                     button {
                         class: "text-red-400 hover:text-red-300 text-xs",
-                        onclick: disconnect,
+                        onclick: move |_| {
+                            let old = conn.peek().client().cloned();
+                            conn.set(ConnectionState::Disconnected {
+                                reason: None,
+                            });
+                            if let Some(client) = old {
+                                spawn(async move { client.close().await });
+                            }
+                        },
                         "Disconnect"
                     }
                 }
-                div { key: "{conn_key}", class: "flex flex-1 overflow-hidden min-h-0", { props.children } }
+                div {
+                    key: "{conn_key}",
+                    class: "flex flex-1 overflow-hidden min-h-0",
+                    {props.children}
+                }
             }
         }
     } else {
+        let is_connecting = connecting_to().is_some();
+        // The static Tailwind v2 stylesheet has no `disabled:` variants, so
+        // branch the row styling on state instead.
+        let row_class = if is_connecting {
+            "flex items-center justify-between w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded text-left opacity-50"
+        } else {
+            "flex items-center justify-between w-full px-4 py-3 bg-gray-800 border border-gray-700 hover:border-indigo-500 rounded text-left"
+        };
         rsx! {
             div { class: "flex flex-col items-center gap-6 p-8",
                 if let Some(reason) = disconnect_reason {
@@ -142,42 +128,48 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         p { class: "text-red-200 text-xs mt-1", "{reason}" }
                     }
                 }
-                div { class: "flex flex-col items-center gap-3",
-                    p { class: "text-gray-400 text-sm",
-                        "Searching for server on the local network..."
-                    }
-                    button {
-                        class: "text-white bg-indigo-500 border-0 py-2 px-6 focus:outline-none hover:bg-indigo-600 rounded text-lg",
-                        disabled: connecting(),
-                        onclick: auto_connect,
-                        if connecting() {
-                            "Discovering..."
-                        } else {
-                            "Auto-discover"
+                if listen_error().is_none() {
+                    div { class: "flex items-center gap-2.5",
+                        span { class: "relative flex h-2.5 w-2.5",
+                            span { class: "animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" }
+                            span { class: "relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" }
+                        }
+                        p { class: "text-gray-400 text-sm",
+                            "Searching for debug servers on your local network..."
                         }
                     }
                 }
-                div { class: "flex flex-col items-center gap-2 w-80",
-                    p { class: "text-gray-500 text-xs uppercase tracking-wide", "or connect manually" }
-                    input {
-                        class: "w-full px-3 py-2 bg-gray-800 text-white rounded border border-gray-700 focus:border-indigo-500 focus:outline-none text-sm font-mono",
-                        placeholder: "host:port (e.g. 10.0.0.120:58391)",
-                        value: "{manual_input}",
-                        oninput: move |e| manual_input.set(e.value()),
-                        onkeydown: move |e| {
-                            if e.key() == Key::Enter {
-                                manual_connect.call(());
-                            }
-                        },
+                div { class: "flex flex-col gap-2 w-80",
+                    if servers().is_empty() {
+                        p { class: "text-gray-600 text-sm text-center py-4",
+                            "Launch the game and the server will show up here."
+                        }
                     }
-                    button {
-                        class: "text-white bg-gray-700 border-0 py-1.5 px-4 focus:outline-none hover:bg-gray-600 rounded text-sm w-full",
-                        disabled: connecting(),
-                        onclick: move |_| manual_connect.call(()),
-                        if connecting() { "Connecting..." } else { "Manual connect" }
+                    for server in servers() {
+                        button {
+                            key: "{server.host}:{server.port}",
+                            class: row_class,
+                            disabled: is_connecting,
+                            onclick: {
+                                let server = server.clone();
+                                move |_| connect_to.call(server.clone())
+                            },
+                            span { class: "font-mono text-sm text-white", "{server.host}:{server.port}" }
+                            span { class: "text-xs text-indigo-400", "Connect" }
+                        }
                     }
                 }
-                if let Some(err) = error_msg() {
+                // Rendered outside the list so it survives the row being
+                // pruned mid-attempt.
+                if let Some(target) = connecting_to() {
+                    p { class: "text-indigo-400 text-sm",
+                        "Connecting to {target.host}:{target.port}..."
+                    }
+                }
+                if let Some(err) = listen_error() {
+                    p { class: "text-yellow-500 text-sm max-w-md text-center", "{err}" }
+                }
+                if let Some(err) = connect_error() {
                     p { class: "text-red-500 text-sm max-w-md text-center", "{err}" }
                 }
             }

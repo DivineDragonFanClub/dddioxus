@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 
 use super::client::{Client, ServerInfo};
 
-pub use super::client::{connect, discover_and_connect, ClientConfig};
+pub use super::client::{connect, watch_beacons, ClientConfig, DiscoveredServer};
 
 #[derive(Clone)]
 pub enum ConnectionState {
