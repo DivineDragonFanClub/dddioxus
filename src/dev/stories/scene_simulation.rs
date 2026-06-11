@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 
 use crate::components::components_panel::ComponentsListPanel;
-use crate::components::inspector::INSPECTOR_WIDTH_STYLE;
 use crate::components::scene_view::ScenePanel;
 use crate::components::transform_inspector::TransformPanel;
 use crate::dev::fixtures;
+
+// the live Inspector is resizable now, but this story renders fixed mock columns
+const INSPECTOR_WIDTH_STYLE: &str = "width: 440px;";
 
 #[component]
 pub fn DevSceneSimulation() -> Element {

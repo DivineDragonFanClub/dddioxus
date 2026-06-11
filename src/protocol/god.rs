@@ -54,6 +54,7 @@ impl Command for SetBondLevelRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HolderBond {
     pub pid: String,
+    pub name: String,
     pub level: i32,
     pub exp: i32,
     pub current_level_exp: i32,
@@ -83,4 +84,28 @@ pub struct GetBondHoldersRequest;
 impl Command for GetBondHoldersRequest {
     const ID: CommandId = CommandId::new(GOD_NS, 2);
     type Response = GetBondHoldersResponse;
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHolderBondRequest {
+    pub gid: String,
+    pub pid: String,
+    pub level: Option<i32>,
+    pub exp: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHolderBondResponse {
+    pub level: i32,
+    pub exp: i32,
+    pub current_level_exp: i32,
+    pub next_level_exp: i32,
+    pub max_level: i32,
+    pub reliance: String,
+    pub max_reliance: String,
+}
+
+impl Command for SetHolderBondRequest {
+    const ID: CommandId = CommandId::new(GOD_NS, 3);
+    type Response = SetHolderBondResponse;
 }

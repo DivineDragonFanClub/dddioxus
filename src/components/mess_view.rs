@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetMessLabelsRequest, GetMessLabelsResponse, ListMessFilesRequest, ListMessFilesResponse,
-    MessEntry, MessFileInfo,
+    MessEntry, MessFileInfo, SetMessTextRequest,
 };
 use crate::rpc;
 
@@ -117,7 +117,8 @@ pub fn MessPanel(props: MessPanelProps) -> Element {
                     }
                 }
                 div {
-                    class: "w-1 bg-gray-700 hover:bg-indigo-500 cursor-col-resize",
+                    // a thin 4px bar (bg-clip-content keeps it slim) padded out into a wider invisible grab zone
+                    class: "w-1 box-content px-1 shrink-0 bg-gray-700 hover:bg-indigo-500 bg-clip-content cursor-col-resize",
                     onmousedown: move |e| {
                         let coord = e.client_coordinates();
                         drag_state.set(Some(DragState {
@@ -319,10 +320,68 @@ struct EntryRowProps {
 
 #[component]
 fn EntryRow(props: EntryRowProps) -> Element {
+    let conn = use_context::<Signal<ConnectionState>>();
+    let mut editing = use_signal(|| false);
+    // current shows the live value, draft is what's being typed
+    let mut current = use_signal(|| props.entry.text.clone());
+    let mut draft = use_signal(|| props.entry.text.clone());
+    let mut saving = use_signal(|| false);
+
+    let label = props.entry.label.clone();
+    let save = move |_| {
+        if saving() {
+            return;
+        }
+        saving.set(true);
+        let label = label.clone();
+        let text = draft();
+        spawn(async move {
+            if let Ok(resp) = rpc::call(&conn, SetMessTextRequest { label, text }).await {
+                current.set(resp.text);
+                editing.set(false);
+            }
+            saving.set(false);
+        });
+    };
+
     rsx! {
         div { class: "py-1 border-b border-gray-700/50",
-            div { class: "text-blue-400 truncate", "{props.entry.label}" }
-            div { class: "text-yellow-200 whitespace-pre-wrap", "{props.entry.text}" }
+            div { class: "flex items-center gap-2",
+                div { class: "text-blue-400 truncate flex-1", "{props.entry.label}" }
+                if !editing() {
+                    button {
+                        class: "shrink-0 text-gray-500 hover:text-indigo-300 text-[10px]",
+                        onclick: move |_| {
+                            draft.set(current());
+                            editing.set(true);
+                        },
+                        "edit"
+                    }
+                }
+            }
+            if editing() {
+                textarea {
+                    class: "w-full mt-1 px-2 py-1 bg-gray-900 text-yellow-200 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-xs",
+                    rows: "3",
+                    value: "{draft}",
+                    oninput: move |e| draft.set(e.value()),
+                }
+                div { class: "flex gap-3 mt-1",
+                    button {
+                        class: "text-emerald-400 hover:text-emerald-300 text-[10px]",
+                        disabled: saving(),
+                        onclick: save,
+                        if saving() { "Saving..." } else { "Save" }
+                    }
+                    button {
+                        class: "text-gray-400 hover:text-gray-200 text-[10px]",
+                        onclick: move |_| editing.set(false),
+                        "Cancel"
+                    }
+                }
+            } else {
+                div { class: "text-yellow-200 whitespace-pre-wrap", "{current}" }
+            }
         }
     }
 }

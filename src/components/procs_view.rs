@@ -151,7 +151,8 @@ pub fn ProcsPanel(props: ProcsPanelProps) -> Element {
                 }
                 if let Some(sel) = props.selected.clone() {
                     div {
-                        class: "w-1 shrink-0 bg-gray-700 hover:bg-indigo-500 cursor-col-resize",
+                        // a thin 4px bar (bg-clip-content keeps it slim) padded out into a wider invisible grab zone
+                        class: "w-1 box-content px-1 shrink-0 bg-gray-700 hover:bg-indigo-500 bg-clip-content cursor-col-resize",
                         onmousedown: move |e| {
                             drag_state.set(Some(DragState {
                                 start_x: e.client_coordinates().x,

@@ -62,3 +62,19 @@ impl Command for LookupMessTextRequest {
     const ID: CommandId = CommandId::new(MESS_NS, 2);
     type Response = LookupMessTextResponse;
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetMessTextRequest {
+    pub label: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetMessTextResponse {
+    pub text: String,
+}
+
+impl Command for SetMessTextRequest {
+    const ID: CommandId = CommandId::new(MESS_NS, 3);
+    type Response = SetMessTextResponse;
+}

@@ -10,6 +10,7 @@ pub mod inspector;
 pub mod map_view;
 pub mod mess_view;
 pub mod procs_view;
+pub mod resizable_panel;
 pub mod scene_tree;
 pub mod scene_view;
 pub mod script_view;

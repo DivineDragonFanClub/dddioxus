@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::components::catalog_provider::Catalogs;
 use crate::components::forces::UnitInspector;
 use crate::components::globals_view::GlobalsView;
+use crate::components::resizable_panel::ResizablePanel;
 use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
@@ -248,19 +249,29 @@ pub fn MapView() -> Element {
                         }
                     }
                 }
-                div { class: "flex-1 min-h-0 overflow-auto p-4",
+                div {
+                    class: "flex-1 min-h-0 overflow-auto p-4",
+                    // clicking the map area outside the grid clears the selection. cell clicks
+                    // stop propagation below, so this only fires for the empty background
+                    onclick: move |_| selected.set(None),
                     match status() {
                         None => rsx! { p { class: "text-gray-400 text-sm", "Checking map state..." } },
                         Some(false) => rsx! {
                             p { class: "text-gray-500 text-sm",
-                                "Not currently in a map. Enter a chapter map to use the editor, then hit Refresh."
+                                "Not in an ongoing battle. Hit Refresh when one has started."
                             }
                         },
                         Some(true) if width == 0 || height == 0 => rsx! {
-                            p { class: "text-gray-500 text-sm", "Map terrain not available yet. Try Refresh." }
+                            p { class: "text-gray-500 text-sm",
+                                "Not in an ongoing battle. Hit Refresh when one has started."
+                            }
                         },
                         Some(true) => rsx! {
-                            div { class: "inline-flex flex-col gap-px bg-gray-700",
+                            div {
+                                class: "inline-flex flex-col gap-px bg-gray-700",
+                                // keep grid clicks (select / move-to) from bubbling to the
+                                // background deselect handler
+                                onclick: |e| e.stop_propagation(),
                                 for z in (0..height).rev() {
                                     div { class: "flex gap-px",
                                         for x in 0..width {
@@ -310,7 +321,9 @@ pub fn MapView() -> Element {
                 }
             }
             if let Some(u) = selected_unit {
-                div { class: "w-96 shrink-0 bg-gray-800 border-l border-gray-700 overflow-auto",
+                ResizablePanel {
+                    class: "bg-gray-800 border-l border-gray-700 overflow-auto",
+                    default_width: 384.0,
                     div { class: "flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700",
                         span { class: "text-gray-400 text-xs", "Selected unit" }
                         button {
