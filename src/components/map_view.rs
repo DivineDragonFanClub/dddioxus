@@ -322,6 +322,8 @@ pub fn MapView() -> Element {
                             index: u.unit_index,
                             name: u.name.clone(),
                             level: u.level,
+                            internal_level: u.internal_level,
+                            total_level: u.total_level,
                             class_jid: u.class_jid.clone(),
                             acted: u.acted,
                         },

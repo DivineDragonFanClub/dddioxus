@@ -78,3 +78,36 @@ impl Command for SetActedRequest {
     const ID: CommandId = CommandId::new(UNIT_NS, 3);
     type Response = SetActedResponse;
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LevelInfo {
+    pub level: i32,
+    pub internal_level: i32,
+    pub total_level: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetLevelRequest {
+    pub force_id: i32,
+    pub unit_index: i32,
+    pub level: i32,
+    pub grow_stats: bool,
+}
+
+impl Command for SetLevelRequest {
+    const ID: CommandId = CommandId::new(UNIT_NS, 4);
+    type Response = LevelInfo;
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetInternalLevelRequest {
+    pub force_id: i32,
+    pub unit_index: i32,
+    pub internal_level: i32,
+    pub grow_stats: bool,
+}
+
+impl Command for SetInternalLevelRequest {
+    const ID: CommandId = CommandId::new(UNIT_NS, 5);
+    type Response = LevelInfo;
+}

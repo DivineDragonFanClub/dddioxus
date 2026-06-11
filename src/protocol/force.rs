@@ -29,6 +29,8 @@ pub struct UnitSummary {
     pub index: i32,
     pub name: String,
     pub level: i32,
+    pub internal_level: i32,
+    pub total_level: i32,
     pub class_jid: String,
     pub acted: bool,
 }

@@ -9,6 +9,8 @@ use crate::rpc;
 pub struct StatInspectorProps {
     pub force_id: i32,
     pub unit_index: i32,
+    // bumped by the parent after a level/internal change with "grow" on, so we refetch the stats
+    pub refresh: u32,
 }
 
 #[component]
@@ -19,14 +21,22 @@ pub fn StatInspector(props: StatInspectorProps) -> Element {
     let force_id = props.force_id;
     let unit_index = props.unit_index;
 
-    let mut mounted = use_signal(|| false);
-    if !mounted() {
-        mounted.set(true);
+    let fetch = move || {
         spawn(async move {
             if let Ok(resp) = rpc::call(&conn, GetStatsRequest { force_id, unit_index }).await {
                 stats.set(Some(resp.stats));
             }
         });
+    };
+
+    let mut mounted = use_signal(|| false);
+    let mut last_refresh = use_signal(|| props.refresh);
+    if !mounted() {
+        mounted.set(true);
+        fetch();
+    } else if last_refresh() != props.refresh {
+        last_refresh.set(props.refresh);
+        fetch();
     }
 
     let on_commit = move |(stat_index, value): (i32, i32)| {
