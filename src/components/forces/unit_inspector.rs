@@ -32,6 +32,8 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
     let on_move = props.on_move;
     let on_acted = props.on_acted;
     let acted = props.unit.acted;
+    // Dead (4), Lost (5) and Temporary (6) units don't take turns, so the acted toggle is moot
+    let show_acted = !matches!(force_id, 4 | 5 | 6);
 
     // level / internal level live right on App.Unit, so we edit them in the header and keep the
     // displayed values in local signals (seeded from the roster, refreshed from each set response)
@@ -76,23 +78,25 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
     rsx! {
         div { class: "border-b border-gray-700 px-4 py-3 min-w-0",
             div { class: "flex flex-wrap items-center gap-x-3 gap-y-1 mb-2",
-                label {
-                    class: "flex items-center gap-1 text-gray-400 text-xs cursor-pointer select-none",
-                    title: "Whether the unit has used up its turn",
-                    input {
-                        key: "{acted}",
-                        r#type: "checkbox",
-                        class: "accent-indigo-500",
-                        checked: acted,
-                        onchange: move |e| {
-                            on_acted.call(SetActedRequest {
-                                force_id,
-                                unit_index,
-                                acted: e.checked(),
-                            });
-                        },
+                if show_acted {
+                    label {
+                        class: "flex items-center gap-1 text-gray-400 text-xs cursor-pointer select-none",
+                        title: "Whether the unit has used up its turn",
+                        input {
+                            key: "{acted}",
+                            r#type: "checkbox",
+                            class: "accent-indigo-500",
+                            checked: acted,
+                            onchange: move |e| {
+                                on_acted.call(SetActedRequest {
+                                    force_id,
+                                    unit_index,
+                                    acted: e.checked(),
+                                });
+                            },
+                        }
+                        "Acted"
                     }
-                    "Acted"
                 }
                 span { class: "text-white font-semibold text-sm", "{props.unit.name}" }
                 IntField { label: "Lv", value: level(), on_commit: commit_level }
