@@ -10,6 +10,7 @@ use dioxus_logger::tracing::Level;
 use components::bonds_view::BondsView;
 use components::catalog_provider::CatalogProvider;
 use components::connection_provider::ConnectionProvider;
+use components::toast::ToastProvider;
 use components::cutscene_view::CutsceneView;
 use components::forces::ForceView;
 use components::map_view::MapView;
@@ -139,7 +140,9 @@ fn App() -> Element {
         div { class: "flex flex-col h-screen text-white",
             ConnectionProvider {
                 CatalogProvider {
-                    Router::<Route> {}
+                    ToastProvider {
+                        Router::<Route> {}
+                    }
                 }
             }
         }

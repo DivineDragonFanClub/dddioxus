@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::components::catalog_provider::Catalogs;
 use crate::components::forces::UnitInspector;
 use crate::components::globals_view::GlobalsView;
+use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     CompleteMapRequest, ForceInfo, GetForcesRequest, MapGridRequest, MapPlacementsRequest, MapStatusRequest,
@@ -34,6 +35,7 @@ fn force_label(force_id: i32) -> &'static str {
 pub fn MapView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
     let catalogs = use_context::<Signal<Catalogs>>();
+    let toasts = use_toasts();
     let mut status = use_signal(|| None::<bool>);
     let mut grid = use_signal(|| (0i32, 0i32));
     let mut placements = use_signal(Vec::<MapUnit>::new);
@@ -236,7 +238,9 @@ pub fn MapView() -> Element {
                             title: "Sets the victory game variable, ending the map as a win",
                             onclick: move |_| {
                                 spawn(async move {
-                                    let _ = rpc::call(&conn, CompleteMapRequest).await;
+                                    if rpc::call(&conn, CompleteMapRequest).await.is_ok() {
+                                        toasts.show("Map marked as complete. It takes effect after the next turn.");
+                                    }
                                 });
                             },
                             span { class: "text-sm leading-none", "🏆" }

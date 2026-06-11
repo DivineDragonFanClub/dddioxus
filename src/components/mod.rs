@@ -14,4 +14,5 @@ pub mod scene_tree;
 pub mod scene_view;
 pub mod script_view;
 pub mod shell;
+pub mod toast;
 pub mod transform_inspector;
