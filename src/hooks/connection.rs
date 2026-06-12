@@ -15,20 +15,15 @@ pub enum ConnectionState {
         client: Arc<Client>,
         info: ServerInfo,
     },
+    /// The connection dropped but the workspace stays up; we keep watching
+    /// beacons and reconnect when the server shows up again.
+    Reconnecting {
+        info: ServerInfo,
+        reason: String,
+    },
 }
 
 impl ConnectionState {
-    pub fn is_open(&self) -> bool {
-        matches!(self, ConnectionState::Connected { .. })
-    }
-
-    pub fn server_info(&self) -> Option<&ServerInfo> {
-        match self {
-            ConnectionState::Connected { info, .. } => Some(info),
-            _ => None,
-        }
-    }
-
     pub fn client(&self) -> Option<&Arc<Client>> {
         match self {
             ConnectionState::Connected { client, .. } => Some(client),

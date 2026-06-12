@@ -25,6 +25,11 @@ const BEACON_MAGIC: &[u8; 4] = b"OZN\x01";
 const BEACON_STALE_AFTER: Duration = Duration::from_secs(5);
 const BEACON_RETRY_DELAY: Duration = Duration::from_secs(3);
 const BEACON_RECV_TIMEOUT: Duration = Duration::from_secs(1);
+// Ping the server periodically; if nothing at all arrives for the timeout
+// (a silent network drop sends no FIN/RST, so the socket read alone would
+// block forever), declare the connection dead.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 
 type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 type WsStream = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -95,7 +100,7 @@ type ReplyTx = oneshot::Sender<Result<Frame, String>>;
 
 pub struct Client {
     codec: Arc<JsonCodec>,
-    sink: AsyncMutex<WsSink>,
+    sink: Arc<AsyncMutex<WsSink>>,
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     next_call_id: AtomicU32,
     info: ServerInfo,
@@ -259,7 +264,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
         .map_err(|e| format!("WebSocket connect failed: {e}"))?;
 
     let (sink, mut stream) = ws.split();
-    let sink = AsyncMutex::new(sink);
+    let sink = Arc::new(AsyncMutex::new(sink));
 
     let hs = Handshake {
         client_api_version: config.api_version,
@@ -300,7 +305,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     let pending: Arc<Mutex<HashMap<u32, ReplyTx>>> = Arc::new(Mutex::new(HashMap::new()));
     let (disc_tx, disc_rx) = oneshot::channel::<String>();
 
-    spawn_reader(stream, codec.clone(), pending.clone(), disc_tx);
+    spawn_reader(stream, sink.clone(), codec.clone(), pending.clone(), disc_tx);
 
     Ok(Arc::new(Client {
         codec,
@@ -318,38 +323,56 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
 
 fn spawn_reader(
     mut stream: WsStream,
+    sink: Arc<AsyncMutex<WsSink>>,
     codec: Arc<JsonCodec>,
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     disconnect: oneshot::Sender<String>,
 ) {
     tokio::spawn(async move {
+        let mut last_rx = Instant::now();
+        let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let reason = loop {
-            match stream.next().await {
-                Some(Ok(Message::Binary(bytes))) => {
-                    let frame: Frame = match codec.decode(&bytes) {
-                        Ok(f) => f,
-                        Err(e) => {
-                            log::warn!("Failed to decode frame: {e}");
-                            continue;
+            tokio::select! {
+                msg = stream.next() => match msg {
+                    Some(Ok(Message::Binary(bytes))) => {
+                        last_rx = Instant::now();
+                        let frame: Frame = match codec.decode(&bytes) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                log::warn!("Failed to decode frame: {e}");
+                                continue;
+                            }
+                        };
+                        let call_id = match &frame {
+                            Frame::Response { call_id, .. } => *call_id,
+                            Frame::Error { call_id, .. } => *call_id,
+                            _ => continue,
+                        };
+                        if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
+                            let _ = tx.send(Ok(frame));
                         }
-                    };
-                    let call_id = match &frame {
-                        Frame::Response { call_id, .. } => *call_id,
-                        Frame::Error { call_id, .. } => *call_id,
-                        _ => continue,
-                    };
-                    if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
-                        let _ = tx.send(Ok(frame));
                     }
-                }
-                Some(Ok(Message::Close(_))) => break "The server closed the connection.".to_string(),
-                Some(Ok(_)) => continue,
-                Some(Err(e)) => {
-                    break format!("Connection error: {e}. The server (the game) likely crashed.")
-                }
-                None => {
-                    break "Connection dropped with no clean close — the server (the game) likely crashed."
-                        .to_string()
+                    Some(Ok(Message::Close(_))) => break "The server closed the connection.".to_string(),
+                    Some(Ok(_)) => last_rx = Instant::now(),
+                    Some(Err(e)) => {
+                        break format!("Connection error: {e}. The server (the game) likely crashed.")
+                    }
+                    None => {
+                        break "Connection dropped with no clean close — the server (the game) likely crashed."
+                            .to_string()
+                    }
+                },
+                _ = heartbeat.tick() => {
+                    if last_rx.elapsed() > HEARTBEAT_TIMEOUT {
+                        break format!(
+                            "No response from the server for {}s — the network or the game went away.",
+                            HEARTBEAT_TIMEOUT.as_secs()
+                        );
+                    }
+                    if sink.lock().await.send(Message::Ping(Vec::new())).await.is_err() {
+                        break "Connection lost (failed to send heartbeat).".to_string();
+                    }
                 }
             }
         };
