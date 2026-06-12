@@ -18,7 +18,17 @@ pub fn GlobalsView(temporary_only: bool) -> Element {
         loading.set(true);
         spawn(async move {
             let result = rpc::call(&conn, GetGlobalVariablesRequest).await;
-            data.set(Some(result));
+            // Keep the last good list through a transient failure (e.g. a
+            // refresh during a connection drop); errors only show when
+            // there's nothing to preserve.
+            match result {
+                ok @ Ok(_) => data.set(Some(ok)),
+                Err(e) => {
+                    if !matches!(&*data.peek(), Some(Ok(_))) {
+                        data.set(Some(Err(e)));
+                    }
+                }
+            }
             loading.set(false);
         });
     };

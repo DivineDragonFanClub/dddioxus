@@ -12,6 +12,23 @@ use crate::rpc;
 #[derive(Clone, Copy)]
 pub struct RevealRequest(pub Signal<u32>);
 
+/// Keep the last good tree (and its expansion state) through a transient
+/// failure, e.g. a fetch caught by a connection drop; errors only show when
+/// there's nothing to preserve.
+fn set_scene_data(
+    data: &mut Signal<Option<Result<GetSceneNameResponse, String>>>,
+    result: Result<GetSceneNameResponse, String>,
+) {
+    match result {
+        ok @ Ok(_) => data.set(Some(ok)),
+        Err(e) => {
+            if !matches!(&*data.peek(), Some(Ok(_))) {
+                data.set(Some(Err(e)));
+            }
+        }
+    }
+}
+
 #[component]
 pub fn SceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
@@ -29,7 +46,7 @@ pub fn SceneView() -> Element {
         loading.set(true);
         spawn(async move {
             let result = rpc::call(&conn, GetSceneNameRequest).await;
-            data.set(Some(result));
+            set_scene_data(&mut data, result);
             loading.set(false);
         });
     };
@@ -43,7 +60,7 @@ pub fn SceneView() -> Element {
         spawn(async move {
             if rpc::call(&conn, ToggleGameObjectRequest { path }).await.is_ok() {
                 let result = rpc::call(&conn, GetSceneNameRequest).await;
-                data.set(Some(result));
+                set_scene_data(&mut data, result);
             }
         });
     };

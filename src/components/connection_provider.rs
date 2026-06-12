@@ -6,16 +6,6 @@ use dioxus::prelude::*;
 use crate::hooks::connection::{connect, watch_beacons, ClientConfig, ConnectionState, DiscoveredServer};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-// Reconnect attempts fail fast so the countdown (and its Retry button)
-// appears quickly; on a LAN only an unreachable host is ever slow.
-const RECONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(3);
-const RECONNECT_RETRY_DELAY_SECS: u64 = 10;
-
-#[derive(Clone, Copy, PartialEq)]
-enum ReconnectStatus {
-    Trying,
-    Waiting(u64),
-}
 
 #[derive(PartialEq, Clone, Props)]
 pub struct ConnectionProviderProps {
@@ -50,78 +40,65 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
         });
     });
 
-    let mut reconnect_status = use_signal(|| ReconnectStatus::Trying);
-    let mut retry_now: Signal<u32> = use_signal(|| 0);
+    let mut retrying = use_signal(|| false);
 
-    let reconnect_config = props.config.clone();
     use_effect(move || {
         if let Some(client) = conn.read().client().cloned() {
-            let cfg = reconnect_config.clone();
             spawn(async move {
                 let reason = client.wait_disconnect().await;
                 // Only react if this client is still the active one — a
                 // session we already left shouldn't disturb a newer
                 // connection.
                 let is_current = conn.peek().client().is_some_and(|c| Arc::ptr_eq(c, &client));
-                if !is_current {
-                    return;
-                }
-                // Keep the workspace up and keep trying to get back in. A
-                // beacon tells us where the server is now (the port changes
-                // when the game relaunches); without one we still try the
-                // last known address directly.
-                let info = client.info().clone();
-                conn.set(ConnectionState::Reconnecting { info: info.clone(), reason });
-                drop(client);
-                let mut seen_retry_gen = *retry_now.peek();
-                loop {
-                    if !matches!(&*conn.peek(), ConnectionState::Reconnecting { .. }) {
-                        return;
-                    }
-                    let candidate = servers
-                        .peek()
-                        .iter()
-                        .filter(|s| s.host == info.host)
-                        .max_by_key(|s| s.port == info.port)
-                        .cloned();
-                    let had_beacon = candidate.is_some();
-                    let target = candidate.unwrap_or(DiscoveredServer {
-                        host: info.host.clone(),
-                        port: info.port,
-                    });
-                    reconnect_status.set(ReconnectStatus::Trying);
-                    if let Ok(Ok(new_client)) =
-                        tokio::time::timeout(RECONNECT_ATTEMPT_TIMEOUT, connect(&target.host, target.port, &cfg)).await
-                    {
-                        // The user may have gone back to the server list
-                        // while this attempt was in flight.
-                        if matches!(&*conn.peek(), ConnectionState::Reconnecting { .. }) {
-                            let new_info = new_client.info().clone();
-                            conn.set(ConnectionState::Connected { client: new_client, info: new_info });
-                        } else {
-                            new_client.close().await;
-                        }
-                        return;
-                    }
-                    // Count down to the next attempt; "Retry now" or the
-                    // server's beacon reappearing skips the wait.
-                    for left in (1..=RECONNECT_RETRY_DELAY_SECS).rev() {
-                        reconnect_status.set(ReconnectStatus::Waiting(left));
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                        if !matches!(&*conn.peek(), ConnectionState::Reconnecting { .. }) {
-                            return;
-                        }
-                        if *retry_now.peek() != seen_retry_gen {
-                            seen_retry_gen = *retry_now.peek();
-                            break;
-                        }
-                        if !had_beacon && servers.peek().iter().any(|s| s.host == info.host) {
-                            break;
-                        }
-                    }
+                if is_current {
+                    // Keep the workspace up; the user reconnects from the
+                    // banner once the server is back.
+                    let info = client.info().clone();
+                    conn.set(ConnectionState::Reconnecting { info, reason });
                 }
             });
         }
+    });
+
+    let retry_config = props.config.clone();
+    let retry = use_callback(move |_: ()| {
+        if retrying() {
+            return;
+        }
+        let target_info = match &*conn.peek() {
+            ConnectionState::Reconnecting { info, .. } => info.clone(),
+            _ => return,
+        };
+        retrying.set(true);
+        let cfg = retry_config.clone();
+        spawn(async move {
+            // A beacon tells us where the server is now (the port changes
+            // when the game relaunches); without one, try the last known
+            // address directly.
+            let target = servers
+                .peek()
+                .iter()
+                .filter(|s| s.host == target_info.host)
+                .max_by_key(|s| s.port == target_info.port)
+                .cloned()
+                .unwrap_or(DiscoveredServer {
+                    host: target_info.host.clone(),
+                    port: target_info.port,
+                });
+            if let Ok(Ok(client)) =
+                tokio::time::timeout(CONNECT_TIMEOUT, connect(&target.host, target.port, &cfg)).await
+            {
+                // The user may have gone back to the server list while the
+                // attempt was in flight.
+                if matches!(&*conn.peek(), ConnectionState::Reconnecting { .. }) {
+                    let info = client.info().clone();
+                    conn.set(ConnectionState::Connected { client, info });
+                } else {
+                    client.close().await;
+                }
+            }
+            retrying.set(false);
+        });
     });
 
     let connect_to = use_callback(move |server: DiscoveredServer| {
@@ -158,32 +135,36 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
 
     if let Some((info, reconnecting)) = workspace {
         let conn_key = format!("{}:{}", info.host, info.port);
+        // Dioxus ignores keys on nested elements — for a key change to
+        // remount the workspace (fresh panels after reconnecting to a
+        // relaunched game on a new port) the keyed div must be the root of
+        // its own rsx block, embedded below as a dynamic node.
+        let workspace_body = rsx! {
+            div {
+                key: "{conn_key}",
+                class: "flex flex-1 overflow-hidden min-h-0",
+                {props.children}
+            }
+        };
         rsx! {
             div {
                 "data-component": "ConnectionProvider",
                 class: "flex flex-col h-full",
                 if let Some(reason) = reconnecting {
-                    div { class: "flex items-center justify-between px-4 py-2 bg-yellow-900 text-sm text-yellow-200 shrink-0",
+                    div { class: "flex items-center justify-between px-4 py-2 bg-yellow-900 text-sm text-yellow-200 flex-shrink-0",
                         div { class: "flex items-center gap-2.5 min-w-0",
-                            span { class: "relative flex h-2.5 w-2.5 shrink-0",
+                            span { class: "relative flex h-2.5 w-2.5 flex-shrink-0",
                                 span { class: "animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75" }
                                 span { class: "relative inline-flex rounded-full h-2.5 w-2.5 bg-yellow-500" }
                             }
                             span { class: "truncate", "Connection lost ({reason})" }
                         }
-                        div { class: "flex items-center gap-3 shrink-0",
-                            match reconnect_status() {
-                                ReconnectStatus::Trying => rsx! {
-                                    span { class: "text-yellow-300 text-xs", "Reconnecting..." }
-                                },
-                                ReconnectStatus::Waiting(secs) => rsx! {
-                                    span { class: "text-yellow-300 text-xs", "Retrying in {secs}s" }
-                                    button {
-                                        class: "text-yellow-100 bg-yellow-800 hover:bg-yellow-700 text-xs px-2 py-0.5 rounded",
-                                        onclick: move |_| retry_now += 1,
-                                        "⟳ Retry now"
-                                    }
-                                },
+                        div { class: "flex items-center gap-3 flex-shrink-0",
+                            button {
+                                class: "text-yellow-100 bg-yellow-800 hover:bg-yellow-700 text-xs px-2 py-0.5 rounded",
+                                disabled: retrying(),
+                                onclick: move |_| retry.call(()),
+                                if retrying() { "Reconnecting..." } else { "⟳ Retry" }
                             }
                             button {
                                 class: "text-yellow-300 hover:text-yellow-100 text-xs underline",
@@ -193,7 +174,7 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         }
                     }
                 } else {
-                    div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300 shrink-0",
+                    div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300 flex-shrink-0",
                         span { "Connected to {info.host}:{info.port} (v{info.api_version})" }
                         button {
                             class: "text-red-400 hover:text-red-300 text-xs",
@@ -210,11 +191,7 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         }
                     }
                 }
-                div {
-                    key: "{conn_key}",
-                    class: "flex flex-1 overflow-hidden min-h-0",
-                    {props.children}
-                }
+                {workspace_body}
             }
         }
     } else {

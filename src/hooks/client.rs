@@ -101,7 +101,10 @@ type ReplyTx = oneshot::Sender<Result<Frame, String>>;
 pub struct Client {
     codec: Arc<JsonCodec>,
     sink: Arc<AsyncMutex<WsSink>>,
-    pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
+    // None = the reader exited and drained the map; insert and
+    // drain-on-death are atomic under this lock so a call can never
+    // register after the drain and await forever.
+    pending: Arc<Mutex<Option<HashMap<u32, ReplyTx>>>>,
     next_call_id: AtomicU32,
     info: ServerInfo,
     disconnect: AsyncMutex<Option<oneshot::Receiver<String>>>,
@@ -113,9 +116,13 @@ impl Client {
     }
 
     /// Close the WebSocket so the server doesn't keep a zombie session
-    /// around after a manual disconnect.
+    /// around after a manual disconnect. Bounded: closing a socket whose
+    /// peer is gone can otherwise block on TCP retransmission for minutes.
     pub async fn close(&self) {
-        let _ = self.sink.lock().await.close().await;
+        let close = async {
+            let _ = self.sink.lock().await.close().await;
+        };
+        let _ = tokio::time::timeout(Duration::from_secs(2), close).await;
     }
 
     pub async fn wait_disconnect(&self) -> String {
@@ -149,7 +156,12 @@ impl Client {
     async fn call_raw(&self, cmd: CommandId, payload: Vec<u8>) -> Result<Frame, String> {
         let call_id = self.next_call_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel::<Result<Frame, String>>();
-        self.pending.lock().unwrap().insert(call_id, tx);
+        match self.pending.lock().unwrap().as_mut() {
+            Some(map) => {
+                map.insert(call_id, tx);
+            }
+            None => return Err("Connection closed.".into()),
+        }
 
         let frame = Frame::request(call_id, cmd.namespace, cmd.command, payload);
         let bytes = self.codec.encode(&frame).map_err(|e| format!("Encode: {e}"))?;
@@ -157,7 +169,9 @@ impl Client {
         {
             let mut sink = self.sink.lock().await;
             if let Err(e) = sink.send(Message::Binary(bytes)).await {
-                self.pending.lock().unwrap().remove(&call_id);
+                if let Some(map) = self.pending.lock().unwrap().as_mut() {
+                    map.remove(&call_id);
+                }
                 return Err(format!("Failed to send request: {e} (the connection looks dead)."));
             }
         }
@@ -302,7 +316,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     }
 
     let codec = Arc::new(JsonCodec);
-    let pending: Arc<Mutex<HashMap<u32, ReplyTx>>> = Arc::new(Mutex::new(HashMap::new()));
+    let pending: Arc<Mutex<Option<HashMap<u32, ReplyTx>>>> = Arc::new(Mutex::new(Some(HashMap::new())));
     let (disc_tx, disc_rx) = oneshot::channel::<String>();
 
     spawn_reader(stream, sink.clone(), codec.clone(), pending.clone(), disc_tx);
@@ -325,7 +339,7 @@ fn spawn_reader(
     mut stream: WsStream,
     sink: Arc<AsyncMutex<WsSink>>,
     codec: Arc<JsonCodec>,
-    pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
+    pending: Arc<Mutex<Option<HashMap<u32, ReplyTx>>>>,
     disconnect: oneshot::Sender<String>,
 ) {
     tokio::spawn(async move {
@@ -349,7 +363,7 @@ fn spawn_reader(
                             Frame::Error { call_id, .. } => *call_id,
                             _ => continue,
                         };
-                        if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
+                        if let Some(tx) = pending.lock().unwrap().as_mut().and_then(|m| m.remove(&call_id)) {
                             let _ = tx.send(Ok(frame));
                         }
                     }
@@ -370,18 +384,31 @@ fn spawn_reader(
                             HEARTBEAT_TIMEOUT.as_secs()
                         );
                     }
-                    if sink.lock().await.send(Message::Ping(Vec::new())).await.is_err() {
-                        break "Connection lost (failed to send heartbeat).".to_string();
+                    // Never park on the shared sink: a stalled RPC send can
+                    // hold it for minutes, which would also stop the elapsed
+                    // check above and the stream reads. Skip the ping when
+                    // contended; a bounded send keeps backpressure from
+                    // freezing the watchdog.
+                    if let Ok(mut s) = sink.try_lock() {
+                        match tokio::time::timeout(HEARTBEAT_INTERVAL, s.send(Message::Ping(Vec::new()))).await {
+                            Ok(Ok(())) => {}
+                            _ => break "Connection lost (failed to send heartbeat).".to_string(),
+                        }
                     }
                 }
             }
         };
 
-        {
-            let mut map = pending.lock().unwrap();
-            for (_call_id, tx) in map.drain() {
-                let _ = tx.send(Err(reason.clone()));
-            }
+        // Poison the map and fail the waiters in one atomic step so a racing
+        // call_raw can't register after the drain.
+        let waiters = pending.lock().unwrap().take();
+        for (_call_id, tx) in waiters.into_iter().flatten() {
+            let _ = tx.send(Err(reason.clone()));
+        }
+        // Best-effort close so the server notices promptly; bounded and
+        // non-blocking because the sink may be held by a stalled writer.
+        if let Ok(mut s) = sink.try_lock() {
+            let _ = tokio::time::timeout(Duration::from_secs(1), s.close()).await;
         }
         let _ = disconnect.send(reason);
     });
