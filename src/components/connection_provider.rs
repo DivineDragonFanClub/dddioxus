@@ -135,7 +135,11 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                             span { class: "relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" }
                         }
                         p { class: "text-gray-400 text-sm",
-                            "Searching for debug servers on your local network..."
+                            if servers().is_empty() {
+                                "Searching for debug servers on your local network..."
+                            } else {
+                                "Click on your server to connect"
+                            }
                         }
                     }
                 }
