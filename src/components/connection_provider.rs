@@ -143,9 +143,9 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         }
                     }
                 }
-                div { class: "flex flex-col gap-2 w-80",
+                div { class: "flex flex-col gap-2 w-full max-w-md p-4 border border-gray-700 rounded-lg",
                     if servers().is_empty() {
-                        p { class: "text-gray-600 text-sm text-center py-4",
+                        p { class: "text-gray-600 text-sm text-center py-3",
                             "Launch the game and the server will show up here."
                         }
                     }
