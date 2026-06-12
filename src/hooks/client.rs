@@ -373,7 +373,7 @@ fn spawn_reader(
                         break format!("Connection error: {e}. The server (the game) likely crashed.")
                     }
                     None => {
-                        break "Connection dropped with no clean close — the server (the game) likely crashed."
+                        break "Connection dropped with no clean close - the server (the game) likely crashed."
                             .to_string()
                     }
                 },
