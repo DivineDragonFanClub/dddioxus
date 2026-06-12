@@ -380,7 +380,7 @@ fn spawn_reader(
                 _ = heartbeat.tick() => {
                     if last_rx.elapsed() > HEARTBEAT_TIMEOUT {
                         break format!(
-                            "No response from the server for {}s — the network or the game went away.",
+                            "No response from the server for {}s - the network or the game went away.",
                             HEARTBEAT_TIMEOUT.as_secs()
                         );
                     }
