@@ -27,6 +27,9 @@ pub struct DragFloatProps {
     pub label: &'static str,
     #[props(default = "text-gray-400")]
     pub color: &'static str,
+    // tailwind width of the input. defaults to a fixed width, pass "w-full" to fill a flex cell
+    #[props(default = "w-20")]
+    pub width: &'static str,
     #[props(default = DEFAULT_DRAG_SENSITIVITY)]
     pub sensitivity: f32,
     #[props(default)]
@@ -63,7 +66,10 @@ pub fn DragFloat(props: DragFloatProps) -> Element {
     };
 
     let dragging = drag_state().is_some();
-    let input_class = "w-20 px-1 py-0.5 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center";
+    let input_class = format!(
+        "{} px-1 py-0.5 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center min-w-0",
+        props.width
+    );
 
     rsx! {
         if !props.label.is_empty() {

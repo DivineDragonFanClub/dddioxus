@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use super::stat_field::StatField;
+use crate::components::ui::{EmptyState, StateKind};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetStatsRequest, SetStatRequest, StatValue};
 use crate::rpc;
@@ -57,14 +58,14 @@ pub fn StatInspector(props: StatInspectorProps) -> Element {
     rsx! {
         match stats() {
             Some(list) => rsx! {
-                div { class: "flex flex-wrap gap-2",
+                div { class: "flex flex-wrap gap-2 py-1",
                     for stat in list.into_iter() {
                         StatField { key: "{stat.index}", stat, on_commit }
                     }
                 }
             },
             None => rsx! {
-                div { class: "text-gray-500 text-xs py-1", "Loading stats..." }
+                EmptyState { kind: StateKind::Loading, message: "Loading stats\u{2026}", compact: true }
             },
         }
     }

@@ -3,8 +3,11 @@ use dioxus::prelude::*;
 use super::inspector::Inspector;
 use super::resizable_panel::ResizablePanel;
 use super::scene_tree::SceneTree;
-use crate::hooks::connection::ConnectionState;
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, EmptyState, Page, PanelHeader, StateKind, Tone,
+};
+use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
 
@@ -55,7 +58,7 @@ pub fn SceneView() -> Element {
     };
 
     rsx! {
-        div { class: "flex flex-1 h-full",
+        Page { row: true,
             ScenePanel {
                 data: data(),
                 loading: loading(),
@@ -65,17 +68,16 @@ pub fn SceneView() -> Element {
                 on_toggle_active: toggle_active,
             }
             ResizablePanel {
-                class: "bg-gray-900 border-l border-gray-700 overflow-y-auto",
+                class: "flex flex-col min-h-0 overflow-hidden rounded-xl border border-gray-700/70 \
+                        bg-gray-800/80 shadow-lg shadow-black/30",
                 default_width: 440.0,
                 match selected_path() {
                     Some(path) => rsx! { Inspector { path } },
                     None => rsx! {
-                        div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700",
-                            h3 { class: "text-white font-bold text-sm", "Inspector" }
-                            p { class: "text-gray-500 text-xs", "No selection" }
-                        }
-                        p { class: "p-4 text-gray-500 text-xs italic",
-                            "Select a node in the scene tree to inspect its transform and components."
+                        PanelHeader { title: "Inspector", subtitle: "No selection".to_string() }
+                        EmptyState {
+                            kind: StateKind::Empty,
+                            message: "Select a node in the scene tree to inspect its transform and components.",
                         }
                     },
                 }
@@ -99,44 +101,43 @@ pub fn ScenePanel(props: ScenePanelProps) -> Element {
     let on_refresh = props.on_refresh;
 
     rsx! {
-        div {
-            "data-component": "ScenePanel",
-            class: "flex flex-col flex-1 overflow-hidden",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                button {
-                    class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
+        Card {
+            class: "flex-1",
+            padded: false,
+            header: rsx! {
+                if let Some(path) = props.selected_path.as_ref() {
+                    span { class: "text-gray-500 text-xs truncate max-w-48", title: "{path}", "{path}" }
+                }
+                Button {
                     disabled: props.loading,
                     onclick: move |_| on_refresh.call(()),
-                    if props.loading { "Refreshing..." } else { "Refresh" }
+                    if props.loading { "Refreshing\u{2026}" } else { "Refresh" }
                 }
-                if let Some(path) = props.selected_path.as_ref() {
-                    span { class: "text-gray-500 text-xs ml-2 truncate", "{path}" }
-                }
-            }
-            div { class: "flex-1 overflow-auto bg-gray-800",
-                match props.data.as_ref() {
-                    Some(Ok(resp)) => rsx! {
-                        SceneTree {
-                            scenes: resp.scenes.clone(),
-                            selected_path: props.selected_path.clone(),
-                            on_select: props.on_select,
-                            on_toggle_active: props.on_toggle_active,
+            },
+            match props.data.as_ref() {
+                Some(Ok(resp)) => rsx! {
+                    SceneTree {
+                        scenes: resp.scenes.clone(),
+                        selected_path: props.selected_path.clone(),
+                        on_select: props.on_select,
+                        on_toggle_active: props.on_toggle_active,
+                    }
+                },
+                Some(Err(err)) => rsx! {
+                    div { class: "p-3 flex flex-col gap-2",
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                        Button {
+                            tone: Tone::Indigo,
+                            variant: ButtonVariant::Outline,
+                            size: ButtonSize::Sm,
+                            onclick: move |_| on_refresh.call(()),
+                            "Retry"
                         }
-                    },
-                    Some(Err(err)) => rsx! {
-                        div { class: "p-4",
-                            p { class: "text-red-500", "Error: {err}" }
-                            button {
-                                class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm mt-2",
-                                onclick: move |_| on_refresh.call(()),
-                                "Retry"
-                            }
-                        }
-                    },
-                    None => rsx! {
-                        div { class: "p-4 text-gray-400", "Loading scene..." }
-                    },
-                }
+                    }
+                },
+                None => rsx! {
+                    EmptyState { kind: StateKind::Loading, message: "Loading scene\u{2026}" }
+                },
             }
         }
     }

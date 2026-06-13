@@ -58,40 +58,52 @@ pub fn Vec3Editor(props: Vec3EditorProps) -> Element {
     rsx! {
         div {
             "data-component": "Vec3Editor",
-            class: "flex items-center gap-2 mb-1",
-            span { class: "text-gray-400 w-16", "{props.label}" }
-            DragFloat {
-                label: "X",
-                color: "text-red-400",
-                value: cur_x(),
-                wrap,
-                on_change: move |v: f32| {
-                    cur_x.set(v);
-                    fire(Vec3 { x: v, y: cur_y(), z: cur_z() });
-                },
-            }
-            DragFloat {
-                label: "Y",
-                color: "text-green-400",
-                value: cur_y(),
-                wrap,
-                on_change: move |v: f32| {
-                    cur_y.set(v);
-                    fire(Vec3 { x: cur_x(), y: v, z: cur_z() });
-                },
-            }
-            DragFloat {
-                label: "Z",
-                color: "text-blue-400",
-                value: cur_z(),
-                wrap,
-                on_change: move |v: f32| {
-                    cur_z.set(v);
-                    fire(Vec3 { x: cur_x(), y: cur_y(), z: v });
-                },
+            class: "flex items-center gap-2 mb-1 min-w-0",
+            span { class: "text-gray-400 text-xs w-14 shrink-0", "{props.label}" }
+            // three equal-width cells that shrink with the panel instead of overflowing
+            div { class: "flex-1 min-w-0 grid grid-cols-3 gap-1",
+                div { class: "min-w-0 flex items-center gap-0.5",
+                    DragFloat {
+                        label: "X",
+                        color: "text-red-400",
+                        width: "w-full",
+                        value: cur_x(),
+                        wrap,
+                        on_change: move |v: f32| {
+                            cur_x.set(v);
+                            fire(Vec3 { x: v, y: cur_y(), z: cur_z() });
+                        },
+                    }
+                }
+                div { class: "min-w-0 flex items-center gap-0.5",
+                    DragFloat {
+                        label: "Y",
+                        color: "text-green-400",
+                        width: "w-full",
+                        value: cur_y(),
+                        wrap,
+                        on_change: move |v: f32| {
+                            cur_y.set(v);
+                            fire(Vec3 { x: cur_x(), y: v, z: cur_z() });
+                        },
+                    }
+                }
+                div { class: "min-w-0 flex items-center gap-0.5",
+                    DragFloat {
+                        label: "Z",
+                        color: "text-blue-400",
+                        width: "w-full",
+                        value: cur_z(),
+                        wrap,
+                        on_change: move |v: f32| {
+                            cur_z.set(v);
+                            fire(Vec3 { x: cur_x(), y: cur_y(), z: v });
+                        },
+                    }
+                }
             }
             button {
-                class: "ml-1 px-1 text-gray-500 hover:text-white text-sm leading-none select-none",
+                class: "shrink-0 ml-1 px-1 text-gray-500 hover:text-white text-sm leading-none select-none",
                 onmounted: move |e: Event<MountedData>| {
                     dots_ref.set(Some(e.data()));
                 },

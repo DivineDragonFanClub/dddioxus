@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, PanelHeader, StateKind};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     ComponentInfo, GetComponentsRequest, GetComponentsResponse, ToggleComponentRequest,
@@ -78,33 +79,45 @@ pub fn ComponentsListPanel(props: ComponentsListPanelProps) -> Element {
             rsx! {
                 div {
                     "data-component": "ComponentsListPanel",
-                    class: "p-3 border-t border-gray-700 font-mono text-xs",
-                    div { class: "flex items-center justify-between mb-2",
-                        h3 { class: "text-white font-bold text-sm", "Components ({components.len()})" }
-                        button {
-                            class: "text-gray-400 hover:text-white text-xs",
-                            onclick: move |_| on_refresh.call(()),
-                            "↻"
-                        }
+                    class: "border-t border-gray-700/70 font-mono text-xs",
+                    PanelHeader {
+                        title: format!("Components ({})", components.len()),
+                        actions: rsx! {
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Sm,
+                                title: "Refresh components".to_string(),
+                                onclick: move |_| on_refresh.call(()),
+                                "\u{21BB}"
+                            }
+                        },
                     }
-                    for component in components.iter() {
-                        ComponentRow {
-                            key: "{component.index}",
-                            component: component.clone(),
-                            on_toggle: on_toggle,
+                    div { class: "p-3",
+                        for component in components.iter() {
+                            ComponentRow {
+                                key: "{component.index}",
+                                component: component.clone(),
+                                on_toggle: on_toggle,
+                            }
                         }
                     }
                 }
             }
         }
         Some(Err(err)) => rsx! {
-            div { class: "p-3 border-t border-gray-700 text-xs text-red-500",
-                "Error: {err}"
+            div { class: "border-t border-gray-700/70",
+                PanelHeader { title: "Components" }
+                div { class: "p-3",
+                    EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                }
             }
         },
         None => rsx! {
-            div { class: "p-3 border-t border-gray-700 text-xs text-gray-500",
-                "Loading components..."
+            div { class: "border-t border-gray-700/70",
+                PanelHeader { title: "Components" }
+                div { class: "p-3",
+                    EmptyState { kind: StateKind::Loading, message: "Loading components\u{2026}" }
+                }
             }
         },
     }
@@ -135,15 +148,15 @@ pub fn ComponentRow(props: ComponentRowProps) -> Element {
     };
 
     rsx! {
-        div { class: "flex items-center gap-2 py-0.5 hover:bg-gray-800 rounded px-1",
+        div { class: "flex items-center gap-2 py-0.5 hover:bg-gray-700/50 rounded px-1 transition-colors",
             if enabled.is_some() {
                 button {
-                    class: "{color} w-4",
+                    class: "{color} w-4 shrink-0",
                     onclick: toggle,
                     "{icon}"
                 }
             } else {
-                span { class: "{color} w-4", "{icon}" }
+                span { class: "{color} w-4 shrink-0", "{icon}" }
             }
             span { class: "{name_class} truncate", "{props.component.type_name}" }
         }

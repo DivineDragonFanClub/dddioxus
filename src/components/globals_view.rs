@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
 
+use crate::components::ui::{
+    Button, Card, EditableText, EmptyState, ListRow, SearchField, SectionLabel, Select, StateKind,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetGlobalVariablesRequest, GetGlobalVariablesResponse, GlobalVariable, SetGlobalVariableRequest,
@@ -74,100 +77,96 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
     let mut scope_filter = use_signal(|| "all".to_string());
     let on_refresh = props.on_refresh;
     let on_commit = props.on_commit;
-    let select_class = "bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm px-2 py-1";
+    let title = if props.temporary_only { "Local Variables" } else { "Variables" };
 
     rsx! {
-        div {
-            "data-component": "GlobalsPanel",
-            class: "flex flex-col flex-1 min-h-0",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm shrink-0",
-                    if props.temporary_only { "Local Variables" } else { "Variables" }
-                }
-                input {
-                    class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                    placeholder: "Filter...",
-                    value: "{search}",
-                    oninput: move |e| search.set(e.value()),
-                }
-                select {
-                    class: "{select_class}",
-                    title: "Value type",
-                    onchange: move |e| kind_filter.set(e.value()),
-                    option { value: "all", selected: kind_filter() == "all", "All types" }
-                    option { value: "number", selected: kind_filter() == "number", "Number" }
-                    option { value: "string", selected: kind_filter() == "string", "String" }
-                }
-                if !props.temporary_only {
-                    select {
-                        class: "{select_class}",
-                        title: "Scope",
-                        onchange: move |e| scope_filter.set(e.value()),
-                        option { value: "all", selected: scope_filter() == "all", "All scopes" }
-                        option { value: "global", selected: scope_filter() == "global", "Global" }
-                        option { value: "local", selected: scope_filter() == "local", "Local" }
+        Card {
+            class: "flex-1",
+            title,
+            padded: false,
+                header: rsx! {
+                    SearchField {
+                        value: search(),
+                        class: "w-56",
+                        on_input: move |v| search.set(v),
                     }
-                }
-                button {
-                    class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: props.loading,
-                    onclick: move |_| on_refresh.call(()),
-                    if props.loading { "Refreshing..." } else { "Refresh" }
-                }
-            }
-            div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
-                match props.data.as_ref() {
-                    Some(Ok(resp)) => {
-                        let query = search().to_lowercase();
-                        let temporary_only = props.temporary_only;
-                        let kind = kind_filter();
-                        let scope = scope_filter();
-                        // the map embed only ever shows local vars, otherwise honor the scope dropdown
-                        let pool: Vec<_> = resp.variables.iter()
-                            .filter(|v| !temporary_only || v.temporary)
-                            .collect();
-                        let filtered: Vec<_> = pool.iter()
-                            .filter(|v| match kind.as_str() {
-                                "number" => v.kind == "number",
-                                "string" => v.kind == "string",
-                                _ => true,
-                            })
-                            .filter(|v| match scope.as_str() {
-                                "global" => !v.temporary,
-                                "local" => v.temporary,
-                                _ => true,
-                            })
-                            .filter(|v| query.is_empty() || v.name.to_lowercase().contains(&query))
-                            .map(|v| (*v).clone())
-                            .collect();
-                        let total = pool.len();
-                        let shown = filtered.len();
-                        rsx! {
-                            p { class: "text-gray-500 mb-2",
-                                if shown == total { "{total} variables" }
-                                else { "{shown} / {total} variables" }
-                            }
-                            for v in filtered.into_iter() {
-                                GlobalRow {
-                                    key: "{v.name}",
-                                    variable: v,
-                                    on_commit: on_commit,
-                                }
-                            }
-                            if shown == 0 {
-                                p { class: "text-gray-500 italic", "No matches" }
-                            }
+                    Select {
+                        title: "Value type",
+                        on_change: move |v| kind_filter.set(v),
+                        option { value: "all", selected: kind_filter() == "all", "All types" }
+                        option { value: "number", selected: kind_filter() == "number", "Number" }
+                        option { value: "string", selected: kind_filter() == "string", "String" }
+                    }
+                    if !props.temporary_only {
+                        Select {
+                            title: "Scope",
+                            on_change: move |v| scope_filter.set(v),
+                            option { value: "all", selected: scope_filter() == "all", "All scopes" }
+                            option { value: "global", selected: scope_filter() == "global", "Global" }
+                            option { value: "local", selected: scope_filter() == "local", "Local" }
                         }
                     }
-                    Some(Err(err)) => rsx! {
-                        p { class: "text-red-500", "Error: {err}" }
-                    },
-                    None => rsx! {
-                        p { class: "text-gray-400", "Loading variables..." }
-                    },
+                    Button {
+                        disabled: props.loading,
+                        onclick: move |_| on_refresh.call(()),
+                        if props.loading { "Refreshing\u{2026}" } else { "Refresh" }
+                    }
+                },
+                div { class: "p-3",
+                    match props.data.as_ref() {
+                        Some(Ok(resp)) => {
+                            let query = search().to_lowercase();
+                            let temporary_only = props.temporary_only;
+                            let kind = kind_filter();
+                            let scope = scope_filter();
+                            // the map embed only ever shows local vars, otherwise honor the scope dropdown
+                            let pool: Vec<_> = resp.variables.iter()
+                                .filter(|v| !temporary_only || v.temporary)
+                                .collect();
+                            let filtered: Vec<_> = pool.iter()
+                                .filter(|v| match kind.as_str() {
+                                    "number" => v.kind == "number",
+                                    "string" => v.kind == "string",
+                                    _ => true,
+                                })
+                                .filter(|v| match scope.as_str() {
+                                    "global" => !v.temporary,
+                                    "local" => v.temporary,
+                                    _ => true,
+                                })
+                                .filter(|v| query.is_empty() || v.name.to_lowercase().contains(&query))
+                                .map(|v| (*v).clone())
+                                .collect();
+                            let total = pool.len();
+                            let shown = filtered.len();
+                            let count = if shown == total {
+                                format!("{total} variables")
+                            } else {
+                                format!("{shown} / {total} variables")
+                            };
+                            rsx! {
+                                SectionLabel { label: "{count}", class: "mb-2" }
+                                for v in filtered.into_iter() {
+                                    GlobalRow {
+                                        key: "{v.name}",
+                                        variable: v,
+                                        on_commit: on_commit,
+                                    }
+                                }
+                                if shown == 0 {
+                                    EmptyState { kind: StateKind::Empty, message: "No matches" }
+                                }
+                            }
+                        }
+                        Some(Err(err)) => rsx! {
+                            EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                        },
+                        None => rsx! {
+                            EmptyState { kind: StateKind::Loading, message: "Loading variables\u{2026}" }
+                        },
+                    }
                 }
             }
-        }
     }
 }
 
@@ -181,69 +180,28 @@ pub struct GlobalRowProps {
 pub fn GlobalRow(props: GlobalRowProps) -> Element {
     let name = props.variable.name.clone();
     let kind = props.variable.kind.clone();
-    let mut editing = use_signal(|| false);
-    let mut draft = use_signal(|| props.variable.value.clone());
-
-    let commit = {
-        let name = name.clone();
-        let kind = kind.clone();
-        let on_commit = props.on_commit;
-        let current = props.variable.value.clone();
-        move || {
-            editing.set(false);
-            if draft() == current {
-                return;
-            }
-            on_commit.call(SetGlobalVariableRequest {
-                name: name.clone(),
-                kind: kind.clone(),
-                value: draft(),
-            });
-        }
-    };
+    let on_commit = props.on_commit;
 
     let kind_class = if kind == "string" {
-        "text-blue-400 w-14 text-xs"
+        "text-blue-400 w-14 text-xs shrink-0"
     } else {
-        "text-green-400 w-14 text-xs"
+        "text-emerald-400 w-14 text-xs shrink-0"
     };
-    let input_type = if kind == "string" { "text" } else { "number" };
 
     rsx! {
-        div { class: "flex items-center gap-3 py-1 hover:bg-gray-700 rounded px-2",
+        ListRow {
             span { class: "{kind_class}", "{kind}" }
-            span { class: "text-gray-200 flex-1 truncate", "{name}" }
-            if editing() {
-                input {
-                    r#type: "{input_type}",
-                    class: "w-40 px-2 py-0.5 bg-gray-900 text-yellow-300 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none",
-                    value: "{draft}",
-                    autofocus: true,
-                    oninput: move |e| draft.set(e.value()),
-                    onblur: {
-                        let mut commit = commit.clone();
-                        move |_| commit()
-                    },
-                    onkeydown: {
-                        let mut commit = commit.clone();
-                        move |e| {
-                            if e.key() == Key::Enter { commit(); }
-                            else if e.key() == Key::Escape { editing.set(false); }
-                        }
-                    },
-                }
-            } else {
-                span {
-                    class: "w-40 px-2 py-0.5 text-yellow-300 truncate cursor-text hover:bg-gray-900 rounded",
-                    onclick: {
-                        let value = props.variable.value.clone();
-                        move |_| {
-                            draft.set(value.clone());
-                            editing.set(true);
-                        }
-                    },
-                    "{props.variable.value}"
-                }
+            span { class: "text-gray-200 flex-1 truncate font-mono text-xs", "{name}" }
+            EditableText {
+                value: props.variable.value.clone(),
+                width: "w-40",
+                on_commit: move |value: String| {
+                    on_commit.call(SetGlobalVariableRequest {
+                        name: name.clone(),
+                        kind: kind.clone(),
+                        value,
+                    });
+                },
             }
         }
     }

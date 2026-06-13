@@ -192,23 +192,6 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                             }
                         }
                     }
-                } else {
-                    div { class: "flex items-center justify-between px-4 py-2 bg-gray-800 text-sm text-gray-300 shrink-0",
-                        span { "Connected to {info.host}:{info.port} (v{info.api_version})" }
-                        button {
-                            class: "text-red-400 hover:text-red-300 text-xs",
-                            onclick: move |_| {
-                                let old = conn.peek().client().cloned();
-                                conn.set(ConnectionState::Disconnected {
-                                    reason: None,
-                                });
-                                if let Some(client) = old {
-                                    spawn(async move { client.close().await });
-                                }
-                            },
-                            "Disconnect"
-                        }
-                    }
                 }
                 div {
                     key: "{conn_key}",

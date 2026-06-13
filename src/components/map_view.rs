@@ -1,10 +1,14 @@
 use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
-use crate::components::forces::UnitInspector;
+use crate::components::forces::{force_dot, force_label, UnitInspector};
 use crate::components::globals_view::GlobalsView;
 use crate::components::resizable_panel::ResizablePanel;
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, EditableNumber, EmptyState, ListRow, Page, PanelHeader,
+    StateKind, Tone,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     CompleteMapRequest, ForceInfo, GetForcesRequest, MapGridRequest, MapPlacementsRequest, MapStatusRequest,
@@ -13,24 +17,6 @@ use crate::protocol::{
     UnitSummary,
 };
 use crate::rpc;
-
-fn force_color(force_id: i32) -> &'static str {
-    match force_id {
-        0 => "bg-blue-500",
-        1 => "bg-red-500",
-        2 => "bg-green-500",
-        _ => "bg-gray-500",
-    }
-}
-
-fn force_label(force_id: i32) -> &'static str {
-    match force_id {
-        0 => "Player",
-        1 => "Enemy",
-        2 => "Ally",
-        _ => "",
-    }
-}
 
 #[component]
 pub fn MapView() -> Element {
@@ -46,6 +32,9 @@ pub fn MapView() -> Element {
     let mut forces = use_signal(Vec::<ForceInfo>::new);
     let mut selected = use_signal(|| None::<(i32, i32)>);
     let mut mounted = use_signal(|| false);
+    // side panels start hidden so the map gets the full width, toggle them on from the header
+    let mut show_rewind = use_signal(|| false);
+    let mut show_vars = use_signal(|| false);
 
     let refresh = use_callback(move |_: ()| {
         spawn(async move {
@@ -127,9 +116,9 @@ pub fn MapView() -> Element {
         });
     };
 
-    let commit_turn = move |v: i32| {
+    let commit_turn = move |v: i64| {
         spawn(async move {
-            if let Ok(resp) = rpc::call(&conn, SetMapTurnRequest { turn: v }).await {
+            if let Ok(resp) = rpc::call(&conn, SetMapTurnRequest { turn: v as i32 }).await {
                 turn.set(Some(resp.turn));
             }
         });
@@ -155,93 +144,98 @@ pub fn MapView() -> Element {
     });
 
     rsx! {
-        div { class: "flex flex-1 min-h-0",
-            if status() == Some(true) {
-                div { class: "w-56 shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col min-h-0",
-                    div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700 shrink-0",
-                        h2 { class: "text-white font-bold text-sm", "Rewind" }
+        Page { row: true,
+            // rewind sidebar, only shown during an active map and when toggled on
+            if status() == Some(true) && show_rewind() {
+                Card {
+                    class: "w-56 shrink-0",
+                    padded: false,
+                    header: rsx! {
                         if previewing().is_some() {
-                            div { class: "flex gap-1 mt-1",
-                                button {
-                                    class: "flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded px-2 py-0.5",
-                                    onclick: commit_rewind,
-                                    "Confirm"
-                                }
-                                button {
-                                    class: "flex-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded px-2 py-0.5",
-                                    onclick: cancel_rewind,
-                                    "Cancel"
-                                }
+                            Button {
+                                tone: Tone::Emerald,
+                                size: ButtonSize::Sm,
+                                onclick: commit_rewind,
+                                "Confirm"
+                            }
+                            Button {
+                                tone: Tone::Gray,
+                                size: ButtonSize::Sm,
+                                onclick: cancel_rewind,
+                                "Cancel"
                             }
                         }
-                    }
+                    },
+                    title: "Rewind",
                     div { class: "flex-1 overflow-auto",
                         if rewind().is_empty() {
-                            p { class: "text-gray-500 text-xs p-3", "No rewind history." }
+                            EmptyState { kind: StateKind::Empty, message: "No rewind history.", compact: true }
                         }
                         for e in rewind().into_iter() {
                             {
                                 let active = previewing() == Some(e.index);
-                                let row_class = if active {
-                                    "w-full text-left px-3 py-1 text-xs border-b border-gray-800 bg-indigo-900/60 ring-1 ring-indigo-500"
-                                } else {
-                                    "w-full text-left px-3 py-1 text-xs border-b border-gray-800 hover:bg-gray-800"
-                                };
                                 rsx! {
-                            button {
-                                key: "{e.index}",
-                                class: "{row_class}",
-                                title: "Preview this point",
-                                onclick: {
-                                    let index = e.index;
-                                    move |_| preview(index)
-                                },
-                                if e.is_phase_begin {
-                                    span { class: "text-indigo-300 font-semibold", "{force_label(e.force)} phase" }
-                                } else {
-                                    div {
-                                        span { class: "text-white", "{e.action}" }
-                                        if !e.actor.is_empty() {
-                                            span { class: "text-gray-400", " — {e.actor}" }
+                                    ListRow {
+                                        key: "{e.index}",
+                                        selected: active,
+                                        onclick: {
+                                            let index = e.index;
+                                            move |_| preview(index)
+                                        },
+                                        if e.is_phase_begin {
+                                            span { class: "text-indigo-300 font-semibold text-xs", "{force_label(e.force)} phase" }
+                                        } else {
+                                            div { class: "min-w-0",
+                                                span { class: "text-white text-xs", "{e.action}" }
+                                                if !e.actor.is_empty() {
+                                                    span { class: "text-gray-400 text-xs", " \u{2014} {e.actor}" }
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                            }
                                 }
                             }
                         }
                     }
                 }
             }
-            div { class: "flex flex-col flex-1 min-h-0",
-                div { class: "flex items-center gap-3 px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0",
-                    h2 { class: "text-white font-bold text-sm", "Map" }
+
+            // center column: the map grid, with the local variables panel below it (gap between them)
+            div { class: "flex flex-col flex-1 min-h-0 gap-3",
+            Card {
+                class: "flex-1 min-h-0",
+                padded: false,
+                title: "Map",
+                header: rsx! {
                     if status() == Some(true) {
+                        // panel toggles, a little dashboard menu bar for the side panels
+                        Button {
+                            tone: if show_rewind() { Tone::Indigo } else { Tone::Gray },
+                            variant: if show_rewind() { ButtonVariant::Solid } else { ButtonVariant::Outline },
+                            size: ButtonSize::Sm,
+                            title: "Toggle the rewind history panel",
+                            onclick: move |_| show_rewind.set(!show_rewind()),
+                            "Rewind"
+                        }
+                        Button {
+                            tone: if show_vars() { Tone::Indigo } else { Tone::Gray },
+                            variant: if show_vars() { ButtonVariant::Solid } else { ButtonVariant::Outline },
+                            size: ButtonSize::Sm,
+                            title: "Toggle the local variables panel",
+                            onclick: move |_| show_vars.set(!show_vars()),
+                            "Variables"
+                        }
                         if let Some(t) = turn() {
-                            label { class: "flex items-center gap-1 text-gray-400 text-xs",
-                                "Turn"
-                                input {
-                                    key: "turn-{t}",
-                                    r#type: "number",
-                                    class: "w-14 px-1 py-0.5 bg-gray-800 text-yellow-300 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center",
-                                    value: "{t}",
-                                    onchange: move |e| {
-                                        if let Ok(v) = e.value().trim().parse::<i32>() {
-                                            if v != t { commit_turn(v); }
-                                        }
-                                    },
-                                }
+                            span { class: "text-gray-400 text-xs shrink-0 ml-1", "Turn" }
+                            EditableNumber {
+                                value: t as i64,
+                                width: "w-14",
+                                on_commit: commit_turn,
                             }
                         }
-                    }
-                    button {
-                        class: "text-indigo-300 hover:text-indigo-200 text-xs",
-                        onclick: move |_| refresh.call(()),
-                        "Refresh"
-                    }
-                    if status() == Some(true) {
-                        button {
-                            class: "ml-auto flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white text-xs font-medium rounded-md px-3 py-1 shadow-sm transition-colors",
+                        Button {
+                            tone: Tone::Emerald,
+                            size: ButtonSize::Sm,
                             title: "Sets the victory game variable, ending the map as a win",
                             onclick: move |_| {
                                 spawn(async move {
@@ -250,26 +244,31 @@ pub fn MapView() -> Element {
                                     }
                                 });
                             },
-                            span { class: "text-sm leading-none", "🏆" }
                             "Complete map"
                         }
                     }
-                }
+                    Button {
+                        size: ButtonSize::Sm,
+                        onclick: move |_| refresh.call(()),
+                        "Refresh"
+                    }
+                },
                 div {
                     class: "flex-1 min-h-0 overflow-auto p-4",
-                    // clicking the map area outside the grid clears the selection. cell clicks
-                    // stop propagation below, so this only fires for the empty background
+                    // clicking outside the grid clears the selection; cell clicks stop propagation
                     onclick: move |_| selected.set(None),
                     match status() {
-                        None => rsx! { p { class: "text-gray-400 text-sm", "Checking map state..." } },
+                        None => rsx! { EmptyState { kind: StateKind::Loading, message: "Checking map state\u{2026}" } },
                         Some(false) => rsx! {
-                            p { class: "text-gray-500 text-sm",
-                                "Not in an ongoing battle. Hit Refresh when one has started."
+                            EmptyState {
+                                kind: StateKind::Empty,
+                                message: "Not in an ongoing battle. Hit Refresh when one has started.",
                             }
                         },
                         Some(true) if width == 0 || height == 0 => rsx! {
-                            p { class: "text-gray-500 text-sm",
-                                "Not in an ongoing battle. Hit Refresh when one has started."
+                            EmptyState {
+                                kind: StateKind::Empty,
+                                message: "Not in an ongoing battle. Hit Refresh when one has started.",
                             }
                         },
                         Some(true) => rsx! {
@@ -301,7 +300,7 @@ pub fn MapView() -> Element {
                                                             {
                                                                 let ring = if is_sel { "ring-2 ring-white" } else { "" };
                                                                 let dim = if u.acted { "opacity-40" } else { "" };
-                                                                let color = force_color(u.force_id);
+                                                                let color = force_dot(u.force_id);
                                                                 rsx! {
                                                                     div {
                                                                         class: "w-3.5 h-3.5 rounded-full {color} {ring} {dim}",
@@ -320,42 +319,53 @@ pub fn MapView() -> Element {
                         },
                     }
                 }
-                if status() == Some(true) {
-                    div { class: "h-72 shrink-0 flex flex-col min-h-0 border-t border-gray-700",
-                        GlobalsView { temporary_only: true }
-                    }
+            }
+            if status() == Some(true) && show_vars() {
+                div { class: "h-72 shrink-0 flex flex-col min-h-0",
+                    GlobalsView { temporary_only: true }
                 }
             }
+            }
+
+            // right unit inspector, only shown when a unit is selected
             if let Some(u) = selected_unit {
                 ResizablePanel {
-                    class: "bg-gray-800 border-l border-gray-700 overflow-auto",
+                    class: "overflow-auto",
                     default_width: 384.0,
-                    div { class: "flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700",
-                        span { class: "text-gray-400 text-xs", "Selected unit" }
-                        button {
-                            class: "text-gray-400 hover:text-white text-sm",
-                            title: "Close (deselect)",
-                            onclick: move |_| selected.set(None),
-                            "✕"
+                    div { class: "flex flex-col min-h-0 bg-gray-800/80 border border-gray-700/70 rounded-xl shadow-lg shadow-black/30 overflow-hidden h-full",
+                        PanelHeader {
+                            title: "Selected unit",
+                            actions: rsx! {
+                                Button {
+                                    tone: Tone::Gray,
+                                    variant: ButtonVariant::Ghost,
+                                    size: ButtonSize::Sm,
+                                    title: "Close (deselect)",
+                                    onclick: move |_| selected.set(None),
+                                    "\u{2715}"
+                                }
+                            },
                         }
-                    }
-                    UnitInspector {
-                        force_id: u.force_id,
-                        unit: UnitSummary {
-                            index: u.unit_index,
-                            name: u.name.clone(),
-                            level: u.level,
-                            internal_level: u.internal_level,
-                            total_level: u.total_level,
-                            class_jid: u.class_jid.clone(),
-                            acted: u.acted,
-                        },
-                        classes: catalogs().classes,
-                        item_catalog: catalogs().items,
-                        force_options: forces(),
-                        on_class_change: on_class_change,
-                        on_move: on_move,
-                        on_acted: on_acted,
+                        div { class: "flex-1 overflow-auto",
+                            UnitInspector {
+                                force_id: u.force_id,
+                                unit: UnitSummary {
+                                    index: u.unit_index,
+                                    name: u.name.clone(),
+                                    level: u.level,
+                                    internal_level: u.internal_level,
+                                    total_level: u.total_level,
+                                    class_jid: u.class_jid.clone(),
+                                    acted: u.acted,
+                                },
+                                classes: catalogs().classes,
+                                item_catalog: catalogs().items,
+                                force_options: forces(),
+                                on_class_change: on_class_change,
+                                on_move: on_move,
+                                on_acted: on_acted,
+                            }
+                        }
                     }
                 }
             }

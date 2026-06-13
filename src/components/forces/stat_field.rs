@@ -32,8 +32,10 @@ pub fn StatField(props: StatFieldProps) -> Element {
             span { class: "text-gray-400 text-[10px] uppercase tracking-wide", "{props.stat.label}" }
             if editing() {
                 input {
-                    r#type: "number",
-                    class: "w-12 px-1 py-0.5 bg-gray-900 text-yellow-300 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center text-sm",
+                    r#type: "text",
+                    inputmode: "numeric",
+                    class: "w-12 px-1.5 py-0.5 bg-gray-950 text-amber-300 rounded border border-gray-600 \
+                            focus:border-indigo-500 focus:outline-none text-center text-sm tabular-nums",
                     value: "{draft}",
                     autofocus: true,
                     oninput: move |e| draft.set(e.value()),
@@ -51,7 +53,8 @@ pub fn StatField(props: StatFieldProps) -> Element {
                 }
             } else {
                 span {
-                    class: "w-12 text-center text-yellow-300 text-sm cursor-text hover:bg-gray-900 rounded",
+                    class: "w-12 inline-block text-center text-amber-300 text-sm rounded cursor-text \
+                            hover:bg-gray-700/50 tabular-nums",
                     onclick: {
                         let value = props.stat.value;
                         move |_| {

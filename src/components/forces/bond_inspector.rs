@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EditableNumber, EmptyState, ListRow, StateKind};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{BondInfo, GetUnitBondsRequest, SetBondLevelRequest};
 use crate::rpc;
@@ -49,21 +50,22 @@ pub fn BondInspector(props: BondInspectorProps) -> Element {
         });
     };
 
-    let arrow = if open() { "▾" } else { "▸" };
-
     rsx! {
         div { class: "mt-1",
-            button {
-                class: "text-gray-400 hover:text-gray-200 text-xs",
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
                 onclick: toggle,
-                "{arrow} Bonds"
+                if open() { "\u{25BE} Bonds" } else { "\u{25B8} Bonds" }
             }
             if open() {
                 div { class: "mt-1 pl-2 border-l border-gray-700",
                     match bonds() {
-                        None => rsx! { p { class: "text-gray-500 text-xs py-1", "Loading bonds..." } },
+                        None => rsx! {
+                            EmptyState { kind: StateKind::Loading, message: "Loading bonds\u{2026}", compact: true }
+                        },
                         Some(list) if list.is_empty() => rsx! {
-                            p { class: "text-gray-500 text-xs py-1", "No Emblem bonds." }
+                            EmptyState { kind: StateKind::Empty, message: "No Emblem bonds.", compact: true }
                         },
                         Some(list) => rsx! {
                             for b in list.into_iter() {
@@ -85,64 +87,24 @@ pub struct BondRowProps {
 
 #[component]
 pub fn BondRow(props: BondRowProps) -> Element {
-    let mut editing = use_signal(|| false);
-    let mut draft = use_signal(|| props.bond.level.to_string());
-
-    let commit = {
-        let on_commit = props.on_commit;
-        let gid = props.bond.gid.clone();
-        let current = props.bond.level;
-        move || {
-            editing.set(false);
-            if let Ok(v) = draft().trim().parse::<i32>() {
-                if v != current {
-                    on_commit.call((gid.clone(), v));
-                }
-            }
-        }
-    };
+    let gid = props.bond.gid.clone();
+    let current_level = props.bond.level;
+    let on_commit = props.on_commit;
 
     rsx! {
-        div { class: "flex items-center gap-2 py-0.5 text-xs",
-            span { class: "text-white flex-1 truncate", title: "{props.bond.gid}", "{props.bond.name}" }
-            span { class: "text-indigo-300 w-6 shrink-0 text-center", title: "Reliance rank", "{props.bond.reliance}" }
-            div { class: "w-16 shrink-0 flex items-center gap-1",
-                span { class: "text-gray-500", "Lv" }
-                if editing() {
-                    input {
-                        r#type: "number",
-                        class: "w-9 px-1 bg-gray-900 text-yellow-300 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center",
-                        value: "{draft}",
-                        autofocus: true,
-                        oninput: move |e| draft.set(e.value()),
-                        onblur: {
-                            let mut commit = commit.clone();
-                            move |_| commit()
-                        },
-                        onkeydown: {
-                            let mut commit = commit.clone();
-                            move |e| {
-                                if e.key() == Key::Enter { commit(); }
-                                else if e.key() == Key::Escape { editing.set(false); }
-                            }
-                        },
-                    }
-                } else {
-                    span {
-                        class: "text-yellow-300 cursor-text hover:bg-gray-900 rounded px-0.5",
-                        onclick: {
-                            let value = props.bond.level;
-                            move |_| {
-                                draft.set(value.to_string());
-                                editing.set(true);
-                            }
-                        },
-                        "{props.bond.level}"
-                    }
+        ListRow {
+            span { class: "text-white flex-1 truncate text-xs", title: "{props.bond.gid}", "{props.bond.name}" }
+            span { class: "text-indigo-300 w-6 shrink-0 text-center text-xs", title: "Reliance rank", "{props.bond.reliance}" }
+            div { class: "flex items-center gap-1 shrink-0",
+                span { class: "text-gray-500 text-xs", "Lv" }
+                EditableNumber {
+                    value: current_level as i64,
+                    width: "w-9",
+                    on_commit: move |v: i64| on_commit.call((gid.clone(), v as i32)),
                 }
-                span { class: "text-gray-600", "/{props.bond.max_level}" }
+                span { class: "text-gray-600 text-xs", "/{props.bond.max_level}" }
             }
-            span { class: "text-gray-500 w-20 shrink-0 text-right", title: "Bond exp", "{props.bond.exp} exp" }
+            span { class: "text-gray-500 text-xs w-20 shrink-0 text-right", title: "Bond exp", "{props.bond.exp} exp" }
         }
     }
 }

@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
 
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, EmptyState, ListRow, SearchField, SectionLabel, Select,
+    SelectSize, StateKind, Tone,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     DespawnEncounterRequest, GetGmapNodesRequest, GetGmapNodesResponse, SetNodeStateRequest,
@@ -112,118 +116,122 @@ pub fn GmapView() -> Element {
     };
 
     rsx! {
-        div {
-            "data-component": "GmapView",
-            class: "flex flex-col flex-1 min-h-0",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0",
-                h2 { class: "text-white font-bold text-sm shrink-0", "Gmap" }
-                input {
-                    class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                    placeholder: "Filter nodes...",
-                    value: "{search}",
-                    oninput: move |e| search.set(e.value()),
-                }
-                button {
-                    class: "text-white bg-emerald-600 border-0 py-1 px-3 focus:outline-none hover:bg-emerald-500 rounded text-sm shrink-0",
-                    onclick: unlock_all,
-                    "Unlock all"
-                }
-                button {
-                    class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: loading(),
-                    onclick: move |_| refresh.call(()),
-                    if loading() { "Refreshing..." } else { "Refresh" }
-                }
-            }
-            div { class: "flex-1 overflow-auto bg-gray-800 p-4 text-sm",
-                match data() {
-                    None => rsx! { p { class: "text-gray-400", "Loading nodes..." } },
-                    Some(resp) if !resp.available => rsx! {
-                        p { class: "text-gray-500",
-                            "World map not active. Open the world map and hit Refresh."
-                        }
-                    },
-                    Some(resp) => {
-                        let query = search().to_lowercase();
-                        let nodes: Vec<_> = resp.nodes.into_iter()
-                            .filter(|n| query.is_empty()
-                                || n.name.to_lowercase().contains(&query)
-                                || n.chapter.to_lowercase().contains(&query)
-                                || n.cid.to_lowercase().contains(&query))
-                            .collect();
-                        let total = nodes.len();
-                        rsx! {
-                            p { class: "text-gray-500 mb-2 font-mono text-xs", "{total} nodes" }
-                            for node in nodes.into_iter() {
-                                div {
-                                    key: "{node.cid}",
-                                    class: "flex items-center gap-3 py-1.5 px-2 rounded hover:bg-gray-700",
-                                    div { class: "flex-1 min-w-0",
-                                        p { class: "text-white truncate", title: "{node.cid}", "{node.name}" }
-                                        p { class: "text-gray-500 text-xs truncate",
-                                            "{node.chapter} "
-                                            span { class: "font-mono text-gray-600", "{node.cid}" }
-                                        }
-                                    }
-                                    select {
-                                        class: "bg-gray-900 text-gray-200 text-xs rounded border border-gray-600 px-2 py-1 shrink-0",
-                                        onchange: {
-                                            let cid = node.cid.clone();
-                                            move |e: Event<FormData>| {
-                                                if let Ok(state) = e.value().parse::<i32>() {
-                                                    set_state((cid.clone(), state));
-                                                }
-                                            }
-                                        },
-                                        for (value, label) in STATES.iter() {
-                                            option {
-                                                value: "{value}",
-                                                selected: *value == node.state,
-                                                "{label}"
+        Card {
+            class: "flex-1",
+            padded: false,
+            header: rsx! {
+                    SearchField {
+                        value: search(),
+                        placeholder: "Filter nodes\u{2026}",
+                        class: "w-56",
+                        on_input: move |v| search.set(v),
+                    }
+                    Button {
+                        tone: Tone::Emerald,
+                        onclick: unlock_all,
+                        "Unlock all"
+                    }
+                    Button {
+                        disabled: loading(),
+                        onclick: move |_| refresh.call(()),
+                        if loading() { "Refreshing\u{2026}" } else { "Refresh" }
+                    }
+                },
+                div { class: "p-3",
+                    match data() {
+                        None => rsx! { EmptyState { kind: StateKind::Loading, message: "Loading nodes\u{2026}" } },
+                        Some(resp) if !resp.available => rsx! {
+                            EmptyState {
+                                kind: StateKind::Empty,
+                                message: "World map not active. Open the world map and hit Refresh.",
+                            }
+                        },
+                        Some(resp) => {
+                            let query = search().to_lowercase();
+                            let nodes: Vec<_> = resp.nodes.into_iter()
+                                .filter(|n| query.is_empty()
+                                    || n.name.to_lowercase().contains(&query)
+                                    || n.chapter.to_lowercase().contains(&query)
+                                    || n.cid.to_lowercase().contains(&query))
+                                .collect();
+                            let total = nodes.len();
+                            rsx! {
+                                SectionLabel { label: "{total} nodes", class: "mb-2" }
+                                for node in nodes.into_iter() {
+                                    ListRow {
+                                        key: "{node.cid}",
+                                        div { class: "flex-1 min-w-0",
+                                            p { class: "text-white truncate", title: "{node.cid}", "{node.name}" }
+                                            p { class: "text-gray-500 text-xs truncate",
+                                                "{node.chapter} "
+                                                span { class: "font-mono text-gray-600", "{node.cid}" }
                                             }
                                         }
-                                    }
-                                    div { class: "w-44 flex items-center justify-end gap-2 shrink-0",
-                                        if node.has_encounter {
-                                            span { class: "text-amber-300 text-xs",
-                                                if let Some(enc) = node.encounter.as_ref() {
-                                                    if let Some(rare) = rare_label(enc.rare) {
-                                                        "⚔ Rank {enc.rank} ({rare})"
-                                                    } else {
-                                                        "⚔ Rank {enc.rank}"
+                                        Select {
+                                            size: SelectSize::Sm,
+                                            class: "shrink-0",
+                                            title: "Node state",
+                                            on_change: {
+                                                let cid = node.cid.clone();
+                                                move |v: String| {
+                                                    if let Ok(state) = v.parse::<i32>() {
+                                                        set_state((cid.clone(), state));
                                                     }
-                                                } else {
-                                                    "⚔ Encounter"
+                                                }
+                                            },
+                                            for (value, label) in STATES.iter() {
+                                                option {
+                                                    value: "{value}",
+                                                    selected: *value == node.state,
+                                                    "{label}"
                                                 }
                                             }
-                                            button {
-                                                class: "text-red-400 hover:text-red-300 text-xs border border-red-500/40 rounded px-2 py-0.5",
-                                                onclick: {
-                                                    let cid = node.cid.clone();
-                                                    move |_| despawn_encounter(cid.clone())
-                                                },
-                                                "Despawn"
-                                            }
-                                        } else {
-                                            button {
-                                                class: "text-emerald-300 hover:text-emerald-200 text-xs border border-emerald-500/40 rounded px-2 py-0.5",
-                                                onclick: {
-                                                    let cid = node.cid.clone();
-                                                    move |_| spawn_encounter(cid.clone())
-                                                },
-                                                "Spawn"
+                                        }
+                                        div { class: "w-44 flex items-center justify-end gap-2 shrink-0",
+                                            if node.has_encounter {
+                                                span { class: "text-amber-300 text-xs font-medium",
+                                                    if let Some(enc) = node.encounter.as_ref() {
+                                                        if let Some(rare) = rare_label(enc.rare) {
+                                                            "Rank {enc.rank} ({rare})"
+                                                        } else {
+                                                            "Rank {enc.rank}"
+                                                        }
+                                                    } else {
+                                                        "Encounter"
+                                                    }
+                                                }
+                                                Button {
+                                                    tone: Tone::Red,
+                                                    variant: ButtonVariant::Outline,
+                                                    size: ButtonSize::Sm,
+                                                    onclick: {
+                                                        let cid = node.cid.clone();
+                                                        move |_| despawn_encounter(cid.clone())
+                                                    },
+                                                    "Despawn"
+                                                }
+                                            } else {
+                                                Button {
+                                                    tone: Tone::Emerald,
+                                                    variant: ButtonVariant::Outline,
+                                                    size: ButtonSize::Sm,
+                                                    onclick: {
+                                                        let cid = node.cid.clone();
+                                                        move |_| spawn_encounter(cid.clone())
+                                                    },
+                                                    "Spawn"
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            if total == 0 {
-                                p { class: "text-gray-500 italic", "No matching nodes" }
+                                if total == 0 {
+                                    EmptyState { kind: StateKind::Empty, message: "No matching nodes" }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
     }
 }

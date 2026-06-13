@@ -9,6 +9,9 @@ use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Card, EmptyState, ListRow, Page, SearchField, SectionLabel, StateKind,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     ClassInfo, ForceInfo, GetForcesRequest, GetUnitsRequest, ItemCatalogEntry, MoveUnitRequest,
@@ -16,6 +19,37 @@ use crate::protocol::{
 };
 use crate::rpc;
 pub use unit_inspector::UnitInspector;
+
+// faction colors, matching the unit dots on the Map grid so a force reads the same in both places.
+// player blue, enemy red, ally green, anything else gray
+pub fn force_dot(id: i32) -> &'static str {
+    match id {
+        0 => "bg-blue-500",
+        1 => "bg-red-500",
+        2 => "bg-green-500",
+        3 => "bg-purple-500",
+        _ => "bg-gray-500",
+    }
+}
+
+pub fn force_text(id: i32) -> &'static str {
+    match id {
+        0 => "text-blue-300",
+        1 => "text-red-300",
+        2 => "text-green-300",
+        3 => "text-purple-300",
+        _ => "text-gray-200",
+    }
+}
+
+pub fn force_label(id: i32) -> &'static str {
+    match id {
+        0 => "Player",
+        1 => "Enemy",
+        2 => "Ally",
+        _ => "",
+    }
+}
 
 #[component]
 pub fn ForceView() -> Element {
@@ -96,11 +130,12 @@ pub fn ForceView() -> Element {
     let force_options = forces().and_then(|r| r.ok()).unwrap_or_default();
 
     rsx! {
-        div { class: "flex flex-1 min-h-0",
-            div { class: "w-44 shrink-0 bg-gray-900 border-r border-gray-700 overflow-y-auto",
-                div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700",
-                    h2 { class: "text-white font-bold text-sm", "Forces" }
-                }
+        Page { row: true,
+            // left pane: force selector
+            Card {
+                title: "Forces",
+                class: "w-44 shrink-0",
+                padded: false,
                 match forces() {
                     Some(Ok(list)) => rsx! {
                         for f in list.into_iter() {
@@ -113,13 +148,14 @@ pub fn ForceView() -> Element {
                         }
                     },
                     Some(Err(err)) => rsx! {
-                        p { class: "text-red-500 text-xs p-3", "Error: {err}" }
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}", compact: true }
                     },
                     None => rsx! {
-                        p { class: "text-gray-400 text-xs p-3", "Loading forces..." }
+                        EmptyState { kind: StateKind::Loading, message: "Loading forces\u{2026}", compact: true }
                     },
                 }
             }
+            // right pane: units list
             UnitsPanel {
                 units: units(),
                 force_id: selected(),
@@ -146,18 +182,14 @@ pub struct ForceButtonProps {
 pub fn ForceButton(props: ForceButtonProps) -> Element {
     let id = props.force.id;
     let active = props.selected == Some(id);
-    let class = if active {
-        "w-full text-left px-3 py-2 text-sm bg-indigo-600 text-white"
-    } else {
-        "w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-800"
-    };
     let on_select = props.on_select;
     rsx! {
-        button {
-            class: "{class}",
+        ListRow {
+            selected: active,
             onclick: move |_| on_select.call(id),
-            "{props.force.label} "
-            span { class: "text-gray-400", "({props.force.unit_count})" }
+            span { class: "h-2.5 w-2.5 rounded-full shrink-0 {force_dot(id)}" }
+            span { class: "text-sm flex-1 truncate {force_text(id)}", "{props.force.label}" }
+            span { class: "text-gray-500 text-xs shrink-0", "({props.force.unit_count})" }
         }
     }
 }
@@ -179,15 +211,25 @@ pub struct UnitsPanelProps {
 pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
     let mut search = use_signal(String::new);
     rsx! {
-        div { class: "flex flex-col flex-1 min-h-0 bg-gray-800",
+        Card {
+            class: "flex-1",
+            padded: false,
+            header: rsx! {
+                SearchField {
+                    value: search(),
+                    placeholder: "Filter units\u{2026}",
+                    class: "w-56",
+                    on_input: move |v| search.set(v),
+                }
+            },
             if props.force_id.is_none() {
-                div { class: "p-6 text-gray-500 text-sm", "Pick a force to see its units." }
+                EmptyState { kind: StateKind::Empty, message: "Pick a force to see its units." }
             } else if props.loading {
-                div { class: "p-6 text-gray-400 text-sm", "Loading units..." }
+                EmptyState { kind: StateKind::Loading, message: "Loading units\u{2026}" }
             } else {
                 match props.units.as_ref() {
                     Some(Ok(list)) if list.is_empty() => rsx! {
-                        div { class: "p-6 text-gray-500 text-sm", "No units in this force." }
+                        EmptyState { kind: StateKind::Empty, message: "No units in this force." }
                     },
                     Some(Ok(list)) => {
                         let query = search().to_lowercase();
@@ -199,13 +241,8 @@ pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
                             .collect();
                         let shown = filtered.len();
                         rsx! {
-                            div { class: "px-3 py-2 bg-gray-900 border-b border-gray-700 shrink-0",
-                                input {
-                                    class: "w-full px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                                    placeholder: "Filter units...",
-                                    value: "{search}",
-                                    oninput: move |e| search.set(e.value()),
-                                }
+                            div { class: "px-3 pb-1 pt-2 shrink-0",
+                                SectionLabel { label: "{shown} units" }
                             }
                             div { class: "flex-1 min-h-0 overflow-auto",
                                 for u in filtered.into_iter() {
@@ -222,13 +259,13 @@ pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
                                     }
                                 }
                                 if shown == 0 {
-                                    p { class: "text-gray-500 italic text-sm p-6", "No units match the filter." }
+                                    EmptyState { kind: StateKind::Empty, message: "No units match the filter." }
                                 }
                             }
                         }
                     },
                     Some(Err(err)) => rsx! {
-                        p { class: "text-red-500 text-sm p-6", "Error: {err}" }
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}" }
                     },
                     None => rsx! {},
                 }

@@ -11,6 +11,7 @@ pub fn is_dev_route(route: &Route) -> bool {
     matches!(
         route,
         Route::DevIndex {}
+            | Route::DevUiKit {}
             | Route::DevVec3Editor {}
             | Route::DevSceneTree {}
             | Route::DevScenePanel {}
@@ -37,6 +38,8 @@ pub fn DevSidebar() -> Element {
             }
             SidebarHeader { label: "Stories" }
             DevNavItem { route: Route::DevIndex {}, label: "Index" }
+            SidebarHeader { label: "UI Kit" }
+            DevNavItem { route: Route::DevUiKit {}, label: "UI Kit gallery" }
             SidebarHeader { label: "Leaves" }
             DevNavItem { route: Route::DevVec3Editor {}, label: "Vec3Editor" }
             DevNavItem { route: Route::DevGlobalRow {}, label: "GlobalRow" }
@@ -79,13 +82,20 @@ struct DevNavItemProps {
 fn DevNavItem(props: DevNavItemProps) -> Element {
     let current: Route = use_route();
     let active = std::mem::discriminant(&current) == std::mem::discriminant(&props.route);
-    let class = if active {
-        "block px-4 py-1.5 text-xs text-white bg-indigo-600"
+    // active: a rounded fill with bold white text plus a blue accent bar flush to the sidebar edge.
+    // inactive: muted, with a faint hover wash
+    let fill = if active {
+        "bg-gray-800 text-white font-semibold"
     } else {
-        "block px-4 py-1.5 text-xs text-gray-300 hover:bg-gray-800"
+        "text-gray-400 hover:bg-gray-800/50 hover:text-gray-200"
     };
     rsx! {
-        Link { to: props.route.clone(), class: "{class}", "{props.label}" }
+        Link { to: props.route.clone(), class: "relative block",
+            if active {
+                span { class: "absolute left-0 top-1 bottom-1 w-1 rounded-full bg-indigo-500" }
+            }
+            div { class: "ml-3 mr-2 px-3 py-1.5 rounded-md text-xs transition-colors {fill}", "{props.label}" }
+        }
     }
 }
 

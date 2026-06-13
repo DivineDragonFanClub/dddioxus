@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EditableNumber, EmptyState, ListRow, Select, SelectSize, SelectTone, StateKind, Tone};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     item_kind_label, AddItemRequest, EquipItemRequest, GetUnitItemsRequest, ItemCatalogEntry, RemoveItemRequest,
@@ -71,22 +72,24 @@ pub fn InventoryInspector(props: InventoryInspectorProps) -> Element {
         });
     };
 
-    let arrow = if open() { "▾" } else { "▸" };
     let catalog = props.item_catalog.clone();
 
     rsx! {
         div { class: "mt-2",
-            button {
-                class: "text-gray-400 hover:text-gray-200 text-xs",
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
                 onclick: toggle,
-                "{arrow} Items"
+                if open() { "\u{25BE} Items" } else { "\u{25B8} Items" }
             }
             if open() {
                 div { class: "mt-1 pl-2 border-l border-gray-700",
                     match items() {
-                        None => rsx! { p { class: "text-gray-500 text-xs py-1", "Loading items..." } },
+                        None => rsx! {
+                            EmptyState { kind: StateKind::Loading, message: "Loading items\u{2026}", compact: true }
+                        },
                         Some(list) if list.is_empty() => rsx! {
-                            p { class: "text-gray-500 text-xs py-1", "No items." }
+                            EmptyState { kind: StateKind::Empty, message: "No items.", compact: true }
                         },
                         Some(list) => rsx! {
                             for it in list.into_iter() {
@@ -101,22 +104,23 @@ pub fn InventoryInspector(props: InventoryInspectorProps) -> Element {
                         },
                     }
                     div { class: "flex items-center gap-1 mt-1",
-                        select {
-                            class: "bg-gray-900 text-gray-300 text-xs rounded border border-gray-600 px-1 py-0.5",
-                            onchange: move |e| {
-                                if let Ok(k) = e.value().parse::<i32>() { add_kind.set(k); }
+                        Select {
+                            size: SelectSize::Sm,
+                            on_change: move |v: String| {
+                                if let Ok(k) = v.parse::<i32>() { add_kind.set(k); }
                             },
                             for k in kinds_in_catalog(&catalog).into_iter() {
                                 option { value: "{k}", selected: k == add_kind(), "{item_kind_label(k)}" }
                             }
                         }
-                        select {
-                            class: "bg-gray-900 text-emerald-300 text-xs rounded border border-gray-600 px-1 py-0.5 flex-1",
-                            onchange: move |e| {
-                                let iid = e.value();
-                                if !iid.is_empty() { add(iid); }
+                        Select {
+                            tone: SelectTone::Action,
+                            size: SelectSize::Sm,
+                            class: "flex-1",
+                            on_change: move |v: String| {
+                                if !v.is_empty() { add(v); }
                             },
-                            option { value: "", selected: true, disabled: true, "+ Add item…" }
+                            option { value: "", selected: true, disabled: true, "+ Add item\u{2026}" }
                             for c in catalog.iter().filter(|c| c.kind == add_kind()) {
                                 option { value: "{c.iid}", "{c.name}" }
                             }
@@ -152,88 +156,31 @@ pub fn ItemRow(props: ItemRowProps) -> Element {
     let on_uses = props.on_uses;
 
     rsx! {
-        div { class: "flex items-center gap-2 py-0.5 text-xs",
-            button {
-                class: if equipped { "text-yellow-400" } else { "text-gray-600 hover:text-gray-400" },
+        ListRow {
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
                 title: "Equip",
                 onclick: move |_| on_equip.call(idx),
-                "★"
-            }
-            span { class: "text-gray-500 w-14 shrink-0", "{item_kind_label(props.item.kind)}" }
-            span { class: "text-white flex-1 truncate", "{props.item.name}" }
-            UsesField {
-                item_index: idx,
-                value: props.item.endurance,
-                on_uses,
-            }
-            button {
-                class: "text-red-500 hover:text-red-300",
-                title: "Remove",
-                onclick: move |_| on_remove.call(idx),
-                "✕"
-            }
-        }
-    }
-}
-
-#[derive(PartialEq, Clone, Props)]
-pub struct UsesFieldProps {
-    pub item_index: i32,
-    pub value: i32,
-    pub on_uses: EventHandler<(i32, i32)>,
-}
-
-#[component]
-pub fn UsesField(props: UsesFieldProps) -> Element {
-    let mut editing = use_signal(|| false);
-    let mut draft = use_signal(|| props.value.to_string());
-
-    let commit = {
-        let on_uses = props.on_uses;
-        let item_index = props.item_index;
-        let current = props.value;
-        move || {
-            editing.set(false);
-            if let Ok(v) = draft().trim().parse::<i32>() {
-                if v != current {
-                    on_uses.call((item_index, v));
+                span {
+                    class: if equipped { "text-amber-300" } else { "text-gray-600" },
+                    "\u{2605}"
                 }
             }
-        }
-    };
-
-    rsx! {
-        if editing() {
-            input {
-                r#type: "number",
-                class: "w-12 px-1 bg-gray-900 text-yellow-300 rounded border border-gray-600 text-center",
-                value: "{draft}",
-                autofocus: true,
-                oninput: move |e| draft.set(e.value()),
-                onblur: {
-                    let mut commit = commit.clone();
-                    move |_| commit()
-                },
-                onkeydown: {
-                    let mut commit = commit.clone();
-                    move |e| {
-                        if e.key() == Key::Enter { commit(); }
-                        else if e.key() == Key::Escape { editing.set(false); }
-                    }
-                },
+            span { class: "text-gray-500 w-14 shrink-0 text-xs", "{item_kind_label(props.item.kind)}" }
+            span { class: "text-white flex-1 truncate text-xs", "{props.item.name}" }
+            EditableNumber {
+                value: props.item.endurance as i64,
+                width: "w-12",
+                on_commit: move |v: i64| on_uses.call((idx, v as i32)),
             }
-        } else {
-            span {
-                class: "w-12 text-center text-yellow-300 cursor-text hover:bg-gray-900 rounded",
-                title: "Uses",
-                onclick: {
-                    let value = props.value;
-                    move |_| {
-                        draft.set(value.to_string());
-                        editing.set(true);
-                    }
-                },
-                "{props.value}"
+            Button {
+                tone: Tone::Red,
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
+                title: "Remove",
+                onclick: move |_| on_remove.call(idx),
+                "\u{2715}"
             }
         }
     }

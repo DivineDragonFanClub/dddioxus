@@ -51,7 +51,7 @@ pub fn ToastProvider(children: Element) -> Element {
             for toast in items().into_iter() {
                 div {
                     key: "{toast.id}",
-                    class: "pointer-events-auto max-w-xs bg-gray-800 border border-gray-600 text-gray-100 text-xs rounded-md shadow-lg px-3 py-2",
+                    class: "pointer-events-auto max-w-xs bg-gray-800/85 backdrop-blur-md border border-gray-700/70 text-gray-100 text-xs rounded-lg shadow-xl shadow-black/40 px-3 py-2.5",
                     "{toast.message}"
                 }
             }

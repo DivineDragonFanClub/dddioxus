@@ -3,12 +3,13 @@ use std::time::Duration;
 use dioxus::prelude::*;
 
 use super::fields::Vec3Editor;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, PanelHeader, StateKind, Tone};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{GetTransformRequest, GetTransformResponse, SetTransformRequest, Vec3};
 use crate::rpc;
 
-/// Watch-mode poll interval. ~60 FPS — chosen so the panel feels live
-/// while the game runs. One panel ≈ 60 RPS; the user sees a pulsing
+/// Watch-mode poll interval. ~60 FPS -- chosen so the panel feels live
+/// while the game runs. One panel = 60 RPS; the user sees a pulsing
 /// indicator on the header so the cost is obvious.
 const WATCH_INTERVAL: Duration = Duration::from_millis(16);
 
@@ -49,7 +50,7 @@ pub fn TransformInspector(props: TransformInspectorProps) -> Element {
 
     // Watch loop: while `watching` is true, fire `GetTransformRequest`
     // every WATCH_INTERVAL. Subscribing to both `watching()` and
-    // `last_path()` re-runs the effect when either changes — so
+    // `last_path()` re-runs the effect when either changes -- so
     // toggling off, or selecting a different node, immediately starts
     // a fresh task. The old task notices via `peek()` that its captured
     // `path` no longer matches `last_path`, and breaks within one tick
@@ -112,15 +113,20 @@ pub fn TransformPanel(props: TransformPanelProps) -> Element {
     let on_change = props.on_change;
     let on_toggle_watch = props.on_toggle_watch;
     let watching = props.watching;
-    let watch_btn_class = if watching {
-        "text-red-400 hover:text-red-300 text-xs flex items-center gap-1"
+
+    let watch_label = if watching {
+        rsx! {
+            span { class: "inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" }
+            "Watching"
+        }
     } else {
-        "text-gray-400 hover:text-white text-xs flex items-center gap-1"
+        rsx! { "Watch" }
     };
-    let watch_btn_title = if watching {
-        "Stop polling — panel is hitting the server every 16 ms"
+    let watch_tone = if watching { Tone::Red } else { Tone::Gray };
+    let watch_title = if watching {
+        "Stop polling -- panel is hitting the server every 16 ms"
     } else {
-        "Watch — poll every 16 ms (~60 FPS) until toggled off"
+        "Watch -- poll every 16 ms (~60 FPS) until toggled off"
     };
 
     match props.data.as_ref() {
@@ -133,70 +139,77 @@ pub fn TransformPanel(props: TransformPanelProps) -> Element {
             rsx! {
                 div {
                     "data-component": "TransformPanel",
-                    class: "p-3 bg-gray-900 border-t border-gray-700 font-mono text-xs",
-                    div { class: "flex items-center justify-between mb-2",
-                        h3 { class: "text-white font-bold text-sm", "Transform" }
-                        div { class: "flex items-center gap-2",
-                            button {
-                                class: "{watch_btn_class}",
-                                title: "{watch_btn_title}",
+                    class: "border-t border-gray-700/70 font-mono text-xs",
+                    PanelHeader {
+                        title: "Transform",
+                        actions: rsx! {
+                            Button {
+                                tone: watch_tone,
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Sm,
+                                title: watch_title.to_string(),
                                 onclick: move |_| on_toggle_watch.call(()),
-                                if watching {
-                                    span { class: "inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" }
-                                    "Watching"
-                                } else {
-                                    "Watch"
-                                }
+                                {watch_label}
                             }
-                            button {
-                                class: "text-gray-400 hover:text-white text-xs",
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Sm,
+                                title: "Refresh transform".to_string(),
                                 onclick: move |_| on_refresh.call(()),
-                                "↻"
+                                "\u{21BB}"
                             }
+                        },
+                    }
+                    div { class: "p-3",
+                        Vec3Editor {
+                            label: "Position",
+                            value: tf.local_position,
+                            on_change: move |v: Vec3| on_change.call(SetTransformRequest {
+                                path: p_pos.clone(),
+                                local_position: Some(v),
+                                local_rotation: None,
+                                local_scale: None,
+                            }),
                         }
-                    }
-                    Vec3Editor {
-                        label: "Position",
-                        value: tf.local_position,
-                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
-                            path: p_pos.clone(),
-                            local_position: Some(v),
-                            local_rotation: None,
-                            local_scale: None,
-                        }),
-                    }
-                    Vec3Editor {
-                        label: "Rotation",
-                        value: tf.local_rotation,
-                        wrap: Some(360.0),
-                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
-                            path: p_rot.clone(),
-                            local_position: None,
-                            local_rotation: Some(v),
-                            local_scale: None,
-                        }),
-                    }
-                    Vec3Editor {
-                        label: "Scale",
-                        value: tf.local_scale,
-                        on_change: move |v: Vec3| on_change.call(SetTransformRequest {
-                            path: p_scale.clone(),
-                            local_position: None,
-                            local_rotation: None,
-                            local_scale: Some(v),
-                        }),
+                        Vec3Editor {
+                            label: "Rotation",
+                            value: tf.local_rotation,
+                            wrap: Some(360.0),
+                            on_change: move |v: Vec3| on_change.call(SetTransformRequest {
+                                path: p_rot.clone(),
+                                local_position: None,
+                                local_rotation: Some(v),
+                                local_scale: None,
+                            }),
+                        }
+                        Vec3Editor {
+                            label: "Scale",
+                            value: tf.local_scale,
+                            on_change: move |v: Vec3| on_change.call(SetTransformRequest {
+                                path: p_scale.clone(),
+                                local_position: None,
+                                local_rotation: None,
+                                local_scale: Some(v),
+                            }),
+                        }
                     }
                 }
             }
         }
         Some(Err(err)) => rsx! {
-            div { class: "p-3 bg-gray-900 border-t border-gray-700 text-xs text-red-500",
-                "Transform error: {err}"
+            div { class: "border-t border-gray-700/70",
+                PanelHeader { title: "Transform" }
+                div { class: "p-3",
+                    EmptyState { kind: StateKind::Error, message: "Transform error: {err}" }
+                }
             }
         },
         None => rsx! {
-            div { class: "p-3 bg-gray-900 border-t border-gray-700 text-xs text-gray-500",
-                "Loading transform..."
+            div { class: "border-t border-gray-700/70",
+                PanelHeader { title: "Transform" }
+                div { class: "p-3",
+                    EmptyState { kind: StateKind::Loading, message: "Loading transform\u{2026}" }
+                }
             }
         },
     }

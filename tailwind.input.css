@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* scan the Rust source for class names. desktop loads assets/tailwind.css via the asset! macro,
+   so regenerate it after changing classes with ./build-css.sh */
+@source "./src";

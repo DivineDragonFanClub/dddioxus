@@ -19,3 +19,4 @@ pub mod scene_view;
 pub mod shell;
 pub mod toast;
 pub mod transform_inspector;
+pub mod ui;

@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, ListRow, Select, SelectSize, SelectTone, StateKind, Tone};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     AddSkillRequest, GetPersonSkillsRequest, GetUnitSkillsRequest, RemoveSkillRequest, SkillInfo,
@@ -64,37 +65,41 @@ pub fn SkillInspector(props: SkillInspectorProps) -> Element {
         });
     };
 
-    let arrow = if open() { "▾" } else { "▸" };
-
     rsx! {
         div { class: "mt-1",
-            button {
-                class: "text-gray-400 hover:text-gray-200 text-xs",
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
                 onclick: toggle,
-                "{arrow} Skills"
+                if open() { "\u{25BE} Skills" } else { "\u{25B8} Skills" }
             }
             if open() {
                 div { class: "mt-1 pl-2 border-l border-gray-700",
                     match skills() {
-                        None => rsx! { p { class: "text-gray-500 text-xs py-1", "Loading skills..." } },
+                        None => rsx! {
+                            EmptyState { kind: StateKind::Loading, message: "Loading skills\u{2026}", compact: true }
+                        },
                         Some(list) if list.is_empty() => rsx! {
-                            p { class: "text-gray-500 text-xs py-1", "No skills." }
+                            EmptyState { kind: StateKind::Empty, message: "No skills.", compact: true }
                         },
                         Some(list) => rsx! {
                             for sk in list.into_iter() {
-                                div { key: "{sk.source}-{sk.sid}", class: "flex items-center gap-2 py-0.5 text-xs",
-                                    span { class: "text-gray-500 w-16 shrink-0", "{sk.source}" }
-                                    span { class: "text-white flex-1 truncate", title: "{sk.sid}", "{sk.name}" }
+                                ListRow {
+                                    key: "{sk.source}-{sk.sid}",
+                                    span { class: "text-gray-500 w-16 shrink-0 text-xs", "{sk.source}" }
+                                    span { class: "text-white flex-1 truncate text-xs", title: "{sk.sid}", "{sk.name}" }
                                     if sk.removable {
-                                        button {
-                                            class: "text-red-500 hover:text-red-300",
+                                        Button {
+                                            tone: Tone::Red,
+                                            variant: ButtonVariant::Ghost,
+                                            size: ButtonSize::Sm,
                                             title: "Remove",
                                             onclick: {
                                                 let sid = sk.sid.clone();
                                                 let source = sk.source.clone();
                                                 move |_| remove((sid.clone(), source.clone()))
                                             },
-                                            "✕"
+                                            "\u{2715}"
                                         }
                                     }
                                 }
@@ -102,20 +107,21 @@ pub fn SkillInspector(props: SkillInspectorProps) -> Element {
                         },
                     }
                     div { class: "flex items-center gap-1 mt-1",
-                        select {
-                            class: "bg-gray-900 text-gray-300 text-xs rounded border border-gray-600 px-1 py-0.5",
-                            onchange: move |e| target.set(e.value()),
+                        Select {
+                            size: SelectSize::Sm,
+                            on_change: move |v| target.set(v),
                             for t in ["Equip", "Private", "Job"] {
                                 option { value: "{t}", selected: t == target(), "{t}" }
                             }
                         }
-                        select {
-                            class: "flex-1 bg-gray-900 text-emerald-300 text-xs rounded border border-gray-600 px-1 py-0.5",
-                            onchange: move |e| {
-                                let sid = e.value();
-                                if !sid.is_empty() { assign(sid); }
+                        Select {
+                            tone: SelectTone::Action,
+                            size: SelectSize::Sm,
+                            class: "flex-1",
+                            on_change: move |v: String| {
+                                if !v.is_empty() { assign(v); }
                             },
-                            option { value: "", selected: true, disabled: true, "+ Assign skill…" }
+                            option { value: "", selected: true, disabled: true, "+ Assign skill\u{2026}" }
                             for c in catalogs().skills.iter().filter(|c| match target().as_str() {
                                 "Private" => !c.inheritable,
                                 "Equip" => c.inheritable,

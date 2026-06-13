@@ -4,6 +4,7 @@ use super::bond_inspector::BondInspector;
 use super::inventory_inspector::InventoryInspector;
 use super::skill_inspector::SkillInspector;
 use super::stat_inspector::StatInspector;
+use crate::components::ui::{Checkbox, EditableNumber, Field, Select, SelectSize};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     ClassInfo, ForceInfo, ItemCatalogEntry, MoveUnitRequest, SetActedRequest, SetClassRequest, SetInternalLevelRequest,
@@ -45,7 +46,8 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
     // bumped after a grow so the StatInspector below refetches
     let mut stat_gen = use_signal(|| 0u32);
 
-    let commit_level = move |v: i32| {
+    let commit_level = move |v: i64| {
+        let v = v as i32;
         let grow_stats = grow();
         spawn(async move {
             let req = SetLevelRequest { force_id, unit_index, level: v, grow_stats };
@@ -60,7 +62,8 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
         });
     };
 
-    let commit_internal = move |v: i32| {
+    let commit_internal = move |v: i64| {
+        let v = v as i32;
         let grow_stats = grow();
         spawn(async move {
             let req = SetInternalLevelRequest { force_id, unit_index, internal_level: v, grow_stats };
@@ -76,76 +79,78 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
     };
 
     rsx! {
-        div { class: "border-b border-gray-700 px-4 py-3 min-w-0",
-            div { class: "flex flex-wrap items-center gap-x-3 gap-y-1 mb-2",
+        div { class: "border-b border-gray-700/70 px-4 py-3 min-w-0",
+            // title row: name on the left, the turn-used toggle on the right
+            div { class: "flex items-center justify-between gap-2 mb-2",
+                span { class: "text-white font-semibold text-sm truncate", "{props.unit.name}" }
                 if show_acted {
-                    label {
-                        class: "flex items-center gap-1 text-gray-400 text-xs cursor-pointer select-none",
+                    Checkbox {
+                        checked: acted,
+                        label: "Acted",
                         title: "Whether the unit has used up its turn",
-                        input {
-                            key: "{acted}",
-                            r#type: "checkbox",
-                            class: "accent-indigo-500",
-                            checked: acted,
-                            onchange: move |e| {
-                                on_acted.call(SetActedRequest {
-                                    force_id,
-                                    unit_index,
-                                    acted: e.checked(),
-                                });
-                            },
-                        }
-                        "Acted"
+                        on_toggle: move |v| {
+                            on_acted.call(SetActedRequest { force_id, unit_index, acted: v });
+                        },
                     }
                 }
-                span { class: "text-white font-semibold text-sm", "{props.unit.name}" }
-                IntField { label: "Lv", value: level(), on_commit: commit_level }
-                IntField { label: "iLv", value: internal(), on_commit: commit_internal }
-                span {
-                    class: "text-gray-500 text-xs",
-                    title: "Total level (level + internal level), the grow target when 'grow' is on",
-                    "= {total}"
-                }
-                label {
-                    class: "flex items-center gap-1 text-gray-400 text-xs cursor-pointer select-none",
-                    title: "Regrow the stat block to match the new level when editing Lv / iLv",
-                    input {
-                        r#type: "checkbox",
-                        class: "accent-indigo-500",
+            }
+            // stacked labeled fields so the dropdowns never collide when the panel is narrow
+            div { class: "space-y-1.5 mb-2",
+                Field { label: "Level", label_width: "w-16",
+                    EditableNumber {
+                        value: level() as i64,
+                        width: "w-14",
+                        on_commit: commit_level,
+                    }
+                    Checkbox {
                         checked: grow(),
-                        onchange: move |e| grow.set(e.checked()),
-                    }
-                    "grow"
-                }
-                select {
-                    class: "bg-gray-900 text-indigo-300 text-xs rounded border border-gray-600 px-1 py-0.5 focus:border-indigo-500 focus:outline-none",
-                    value: "{props.unit.class_jid}",
-                    onchange: move |e| {
-                        on_class_change.call(SetClassRequest {
-                            force_id,
-                            unit_index,
-                            jid: e.value(),
-                        });
-                    },
-                    for c in props.classes.iter() {
-                        option { value: "{c.jid}", selected: c.jid == props.unit.class_jid, "{c.name}" }
+                        label: "grow",
+                        title: "Regrow the stat block to match the new level when editing Lv / iLv",
+                        on_toggle: move |v| grow.set(v),
                     }
                 }
-                select {
-                    class: "ml-auto bg-gray-900 text-gray-300 text-xs rounded border border-gray-600 px-1 py-0.5 focus:border-indigo-500 focus:outline-none",
-                    onchange: move |e| {
-                        if let Ok(to) = e.value().parse::<i32>() {
-                            on_move.call(MoveUnitRequest {
-                                from_force_id: force_id,
-                                unit_index,
-                                to_force_id: to,
-                            });
+                Field { label: "Internal", label_width: "w-16",
+                    EditableNumber {
+                        value: internal() as i64,
+                        width: "w-14",
+                        on_commit: commit_internal,
+                    }
+                    span {
+                        class: "text-gray-500 text-xs",
+                        title: "Total level (level + internal level), the grow target when 'grow' is on",
+                        "total {total}"
+                    }
+                }
+                Field { label: "Class", label_width: "w-16",
+                    Select {
+                        size: SelectSize::Sm,
+                        class: "w-full",
+                        on_change: move |v: String| {
+                            on_class_change.call(SetClassRequest { force_id, unit_index, jid: v });
+                        },
+                        for c in props.classes.iter() {
+                            option { value: "{c.jid}", selected: c.jid == props.unit.class_jid, "{c.name}" }
                         }
-                    },
-                    option { value: "", selected: true, disabled: true, "Move to…" }
-                    for f in props.force_options.iter() {
-                        if f.id != force_id {
-                            option { value: "{f.id}", "{f.label}" }
+                    }
+                }
+                Field { label: "Move to", label_width: "w-16",
+                    Select {
+                        size: SelectSize::Sm,
+                        class: "w-full",
+                        on_change: move |v: String| {
+                            if let Ok(to) = v.parse::<i32>() {
+                                on_move.call(MoveUnitRequest {
+                                    from_force_id: force_id,
+                                    unit_index,
+                                    to_force_id: to,
+                                });
+                            }
+                        },
+                        option { value: "", selected: true, disabled: true, "Move to\u{2026}" }
+                        for f in props.force_options.iter() {
+                            if f.id != force_id {
+                                option { value: "{f.id}", "{f.label}" }
+                            }
                         }
                     }
                 }
@@ -158,61 +163,6 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
             }
             SkillInspector { force_id, unit_index }
             BondInspector { force_id, unit_index }
-        }
-    }
-}
-
-// compact inline number field for the level row, commits on Enter or blur
-#[derive(PartialEq, Clone, Props)]
-struct IntFieldProps {
-    label: &'static str,
-    value: i32,
-    on_commit: EventHandler<i32>,
-}
-
-#[component]
-fn IntField(props: IntFieldProps) -> Element {
-    let mut draft = use_signal(|| props.value.to_string());
-    // re-seed when the value changes underneath us (e.g. the server clamped it)
-    let mut last = use_signal(|| props.value);
-    if last() != props.value {
-        last.set(props.value);
-        draft.set(props.value.to_string());
-    }
-
-    let commit = {
-        let on_commit = props.on_commit;
-        let current = props.value;
-        move || {
-            if let Ok(v) = draft().trim().parse::<i32>() {
-                if v != current {
-                    on_commit.call(v);
-                }
-            }
-        }
-    };
-
-    rsx! {
-        label { class: "flex items-center gap-1 text-gray-400 text-xs",
-            "{props.label}"
-            input {
-                r#type: "number",
-                class: "w-12 px-1 py-0.5 bg-gray-900 text-yellow-300 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-center text-sm",
-                value: "{draft}",
-                oninput: move |e| draft.set(e.value()),
-                onblur: {
-                    let commit = commit.clone();
-                    move |_| commit()
-                },
-                onkeydown: {
-                    let commit = commit.clone();
-                    move |e| {
-                        if e.key() == Key::Enter {
-                            commit();
-                        }
-                    }
-                },
-            }
         }
     }
 }

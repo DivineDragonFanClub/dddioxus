@@ -1,16 +1,17 @@
 use dioxus::prelude::*;
 
+use crate::components::resizable_panel::{ResizablePanel, Side};
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, EmptyState, ListRow, Page, PanelHeader, SearchField,
+    SectionLabel, StateKind, Tone,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetMessLabelsRequest, GetMessLabelsResponse, ListMessFilesRequest, ListMessFilesResponse,
     MessEntry, MessFileInfo, SetMessTextRequest,
 };
 use crate::rpc;
-
-const PANEL_MIN_WIDTH: f64 = 220.0;
-const PANEL_MAX_WIDTH: f64 = 600.0;
-const PANEL_DEFAULT_WIDTH: f64 = 320.0;
 
 #[component]
 pub fn MessView() -> Element {
@@ -88,76 +89,47 @@ pub struct MessPanelProps {
 
 #[component]
 pub fn MessPanel(props: MessPanelProps) -> Element {
-    let mut panel_width = use_signal(|| PANEL_DEFAULT_WIDTH);
-    let mut drag_state = use_signal(|| None::<DragState>);
     let on_refresh_files = props.on_refresh_files;
     let on_select_file = props.on_select_file;
-    let dragging = drag_state().is_some();
 
     rsx! {
-        div {
-            "data-component": "MessPanel",
-            class: "flex flex-col flex-1 min-h-0 relative",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm", "Mess Browser" }
-                button {
-                    class: "ml-auto text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: props.files_loading,
-                    onclick: move |_| on_refresh_files.call(()),
-                    if props.files_loading { "Refreshing..." } else { "Refresh" }
-                }
-            }
-            div { class: "flex flex-1 overflow-hidden",
-                div {
-                    class: "shrink-0 bg-gray-900 border-r border-gray-700 overflow-auto",
-                    style: "width: {panel_width()}px;",
-                    FileList {
-                        files: props.files.clone(),
-                        selected: props.selected.clone(),
-                        on_select: on_select_file,
-                    }
-                }
-                div {
-                    // a thin 4px bar (bg-clip-content keeps it slim) padded out into a wider invisible grab zone
-                    class: "w-1 box-content px-1 shrink-0 bg-gray-700 hover:bg-indigo-500 bg-clip-content cursor-col-resize",
-                    onmousedown: move |e| {
-                        let coord = e.client_coordinates();
-                        drag_state.set(Some(DragState {
-                            start_x: coord.x,
-                            start_width: panel_width(),
-                        }));
-                    },
-                }
-                div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
-                    EntryList {
-                        selected: props.selected.clone(),
-                        entries: props.entries.clone(),
-                        loading: props.entries_loading,
-                    }
-                }
-            }
-            if dragging {
-                div {
-                    class: "fixed inset-0 z-50 cursor-col-resize",
-                    onmousemove: move |e| {
-                        if let Some(state) = drag_state() {
-                            let coord = e.client_coordinates();
-                            let delta = coord.x - state.start_x;
-                            let next = (state.start_width + delta).clamp(PANEL_MIN_WIDTH, PANEL_MAX_WIDTH);
-                            panel_width.set(next);
+        Page { row: true,
+            ResizablePanel {
+                side: Side::Left,
+                class: "bg-gray-800/80 border border-gray-700/70 rounded-xl shadow-lg shadow-black/30 overflow-hidden",
+                default_width: 320.0,
+                min_width: 220.0,
+                max_width: 600.0,
+                // card header: title + refresh button
+                div { class: "flex items-center gap-2 px-3 py-2 border-b border-gray-700/70 bg-gray-900/40 shrink-0",
+                    h3 { class: "text-white font-semibold text-sm truncate", "Mess Browser" }
+                    div { class: "ml-auto flex items-center gap-2",
+                        Button {
+                            disabled: props.files_loading,
+                            onclick: move |_| on_refresh_files.call(()),
+                            if props.files_loading { "Refreshing\u{2026}" } else { "Refresh" }
                         }
-                    },
-                    onmouseup: move |_| drag_state.set(None),
+                    }
+                }
+                // file list body
+                FileList {
+                    files: props.files.clone(),
+                    selected: props.selected.clone(),
+                    on_select: on_select_file,
+                }
+            }
+            // right pane: entry viewer
+            Card {
+                class: "flex-1",
+                padded: false,
+                EntryList {
+                    selected: props.selected.clone(),
+                    entries: props.entries.clone(),
+                    loading: props.entries_loading,
                 }
             }
         }
     }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-struct DragState {
-    start_x: f64,
-    start_width: f64,
 }
 
 #[derive(PartialEq, Clone, Props)]
@@ -173,47 +145,50 @@ fn FileList(props: FileListProps) -> Element {
     let on_select = props.on_select;
 
     rsx! {
-        div { class: "p-2",
-            input {
-                class: "w-full mb-2 px-2 py-1 bg-gray-800 text-white rounded border border-gray-700 focus:border-indigo-500 focus:outline-none text-xs",
-                placeholder: "Filter files...",
-                value: "{search}",
-                oninput: move |e| search.set(e.value()),
+        div { class: "flex flex-col min-h-0 flex-1 overflow-hidden",
+            div { class: "p-2 shrink-0",
+                SearchField {
+                    value: search(),
+                    placeholder: "Filter files\u{2026}",
+                    on_input: move |v| search.set(v),
+                }
             }
-            match props.files.as_ref() {
-                Some(Ok(resp)) => {
-                    let query = search().to_lowercase();
-                    let filtered: Vec<MessFileInfo> = resp.files.iter()
-                        .filter(|f| query.is_empty() || f.name.to_lowercase().contains(&query))
-                        .cloned()
-                        .collect();
-                    let total = resp.files.len();
-                    let shown = filtered.len();
-                    let selected = props.selected.clone();
-                    rsx! {
-                        p { class: "text-gray-500 text-[10px] mb-1 px-1",
-                            if query.is_empty() { "{total} files" }
-                            else { "{shown} / {total}" }
-                        }
-                        for f in filtered.into_iter() {
-                            FileRow {
-                                key: "{f.name}",
-                                file: f.clone(),
-                                active: selected.as_deref() == Some(f.name.as_str()),
-                                on_select: on_select,
+            div { class: "flex-1 overflow-auto px-2 pb-2",
+                match props.files.as_ref() {
+                    Some(Ok(resp)) => {
+                        let query = search().to_lowercase();
+                        let filtered: Vec<MessFileInfo> = resp.files.iter()
+                            .filter(|f| query.is_empty() || f.name.to_lowercase().contains(&query))
+                            .cloned()
+                            .collect();
+                        let total = resp.files.len();
+                        let shown = filtered.len();
+                        let selected = props.selected.clone();
+                        rsx! {
+                            SectionLabel {
+                                label: if query.is_empty() { format!("{total} files") } else { format!("{shown} / {total}") },
+                                class: "mb-1 px-1",
+                            }
+                            for f in filtered.into_iter() {
+                                FileRow {
+                                    key: "{f.name}",
+                                    file: f.clone(),
+                                    active: selected.as_deref() == Some(f.name.as_str()),
+                                    on_select: on_select,
+                                }
+                            }
+                            if shown == 0 {
+                                EmptyState { kind: StateKind::Empty, message: "No matches", compact: true }
                             }
                         }
-                        if shown == 0 {
-                            p { class: "text-gray-500 italic text-xs px-1", "No matches" }
-                        }
                     }
+                    Some(Err(err)) => rsx! {
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                    },
+                    None => rsx! {
+                        EmptyState { kind: StateKind::Loading, message: "Loading\u{2026}" }
+                    },
                 }
-                Some(Err(err)) => rsx! {
-                    p { class: "text-red-500 text-xs", "Error: {err}" }
-                },
-                None => rsx! {
-                    p { class: "text-gray-400 text-xs", "Loading..." }
-                },
             }
         }
     }
@@ -230,19 +205,16 @@ struct FileRowProps {
 fn FileRow(props: FileRowProps) -> Element {
     let on_select = props.on_select;
     let name = props.file.name.clone();
-    let class = if props.active {
-        "block w-full text-left px-2 py-1 rounded text-xs bg-gray-700 text-white"
-    } else {
-        "block w-full text-left px-2 py-1 rounded text-xs text-gray-300 hover:bg-gray-800"
-    };
 
     rsx! {
-        button {
-            class: "{class}",
+        ListRow {
+            selected: props.active,
             onclick: move |_| on_select.call(name.clone()),
-            div { class: "truncate", "{props.file.name}" }
-            div { class: "text-[10px] text-gray-500",
-                "{props.file.label_count} labels • refs {props.file.reference_count}"
+            div { class: "flex-1 min-w-0",
+                p { class: "text-white text-xs truncate", "{props.file.name}" }
+                p { class: "text-gray-500 text-[10px]",
+                    "{props.file.label_count} labels \u{00B7} refs {props.file.reference_count}"
+                }
             }
         }
     }
@@ -261,55 +233,67 @@ fn EntryList(props: EntryListProps) -> Element {
 
     let Some(name) = props.selected.as_ref() else {
         return rsx! {
-            p { class: "text-gray-500 italic", "Select a file from the list." }
+            div { class: "flex-1 flex items-center justify-center p-6",
+                EmptyState { kind: StateKind::Empty, message: "Select a file from the list." }
+            }
         };
     };
 
     if props.loading {
         return rsx! {
-            p { class: "text-gray-400", "Loading entries from {name}..." }
+            div { class: "flex-1 p-6",
+                EmptyState { kind: StateKind::Loading, message: "Loading entries from {name}\u{2026}" }
+            }
         };
     }
 
     rsx! {
-        div { class: "flex items-center gap-2 mb-3",
-            input {
-                class: "flex-1 px-2 py-1 bg-gray-900 text-white rounded border border-gray-700 focus:border-indigo-500 focus:outline-none text-xs",
-                placeholder: "Filter labels or text...",
-                value: "{search}",
-                oninput: move |e| search.set(e.value()),
+        div { class: "flex flex-col min-h-0 flex-1 overflow-hidden",
+            // search toolbar inside the right pane header
+            PanelHeader {
+                title: name.clone(),
+                actions: rsx! {
+                    SearchField {
+                        value: search(),
+                        placeholder: "Filter labels or text\u{2026}",
+                        class: "w-52",
+                        on_input: move |v| search.set(v),
+                    }
+                },
             }
-        }
-        match props.entries.as_ref() {
-            Some(Ok(resp)) => {
-                let query = search().to_lowercase();
-                let filtered: Vec<MessEntry> = resp.entries.iter()
-                    .filter(|e| query.is_empty()
-                        || e.label.to_lowercase().contains(&query)
-                        || e.text.to_lowercase().contains(&query))
-                    .cloned()
-                    .collect();
-                let total = resp.entries.len();
-                let shown = filtered.len();
-                rsx! {
-                    p { class: "text-gray-500 mb-2",
-                        if query.is_empty() { "{total} entries" }
-                        else { "{shown} / {total}" }
+            div { class: "flex-1 overflow-auto p-3 font-mono text-xs",
+                match props.entries.as_ref() {
+                    Some(Ok(resp)) => {
+                        let query = search().to_lowercase();
+                        let filtered: Vec<MessEntry> = resp.entries.iter()
+                            .filter(|e| query.is_empty()
+                                || e.label.to_lowercase().contains(&query)
+                                || e.text.to_lowercase().contains(&query))
+                            .cloned()
+                            .collect();
+                        let total = resp.entries.len();
+                        let shown = filtered.len();
+                        rsx! {
+                            SectionLabel {
+                                label: if query.is_empty() { format!("{total} entries") } else { format!("{shown} / {total}") },
+                                class: "mb-2",
+                            }
+                            for e in filtered.into_iter() {
+                                EntryRow { key: "{e.label}", entry: e }
+                            }
+                            if shown == 0 {
+                                EmptyState { kind: StateKind::Empty, message: "No matches" }
+                            }
+                        }
                     }
-                    for e in filtered.into_iter() {
-                        EntryRow { key: "{e.label}", entry: e }
-                    }
-                    if shown == 0 {
-                        p { class: "text-gray-500 italic", "No matches" }
-                    }
+                    Some(Err(err)) => rsx! {
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                    },
+                    None => rsx! {
+                        EmptyState { kind: StateKind::Loading, message: "Loading\u{2026}" }
+                    },
                 }
             }
-            Some(Err(err)) => rsx! {
-                p { class: "text-red-500", "Error: {err}" }
-            },
-            None => rsx! {
-                p { class: "text-gray-400", "Loading..." }
-            },
         }
     }
 }
@@ -351,12 +335,14 @@ fn EntryRow(props: EntryRowProps) -> Element {
     };
 
     rsx! {
-        div { class: "py-1 border-b border-gray-700/50",
+        div { class: "py-1.5 border-b border-gray-700/50",
             div { class: "flex items-center gap-2",
                 div { class: "text-blue-400 truncate flex-1", "{props.entry.label}" }
                 if !editing() {
-                    button {
-                        class: "shrink-0 text-gray-500 hover:text-indigo-300 text-[10px]",
+                    Button {
+                        tone: Tone::Gray,
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
                         onclick: move |_| {
                             draft.set(current());
                             editing.set(true);
@@ -367,26 +353,30 @@ fn EntryRow(props: EntryRowProps) -> Element {
             }
             if editing() {
                 textarea {
-                    class: "w-full mt-1 px-2 py-1 bg-gray-900 text-yellow-200 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-xs",
+                    class: "w-full mt-1 px-2 py-1 bg-gray-950 text-amber-200 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-xs",
                     rows: "3",
                     value: "{draft}",
                     oninput: move |e| draft.set(e.value()),
                 }
-                div { class: "flex gap-3 mt-1",
-                    button {
-                        class: "text-emerald-400 hover:text-emerald-300 text-[10px]",
+                div { class: "flex gap-2 mt-1",
+                    Button {
+                        tone: Tone::Emerald,
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
                         disabled: saving(),
                         onclick: save,
-                        if saving() { "Saving..." } else { "Save" }
+                        if saving() { "Saving\u{2026}" } else { "Save" }
                     }
-                    button {
-                        class: "text-gray-400 hover:text-gray-200 text-[10px]",
+                    Button {
+                        tone: Tone::Gray,
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
                         onclick: move |_| editing.set(false),
                         "Cancel"
                     }
                 }
             } else {
-                div { class: "text-yellow-200 whitespace-pre-wrap", "{current}" }
+                div { class: "text-amber-200 whitespace-pre-wrap mt-0.5", "{current}" }
             }
         }
     }

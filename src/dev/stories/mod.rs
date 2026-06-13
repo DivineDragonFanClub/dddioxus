@@ -9,6 +9,7 @@ pub mod scene_panel;
 pub mod scene_simulation;
 pub mod scene_tree;
 pub mod transform_panel;
+pub mod ui_kit;
 pub mod vec3_editor;
 
 pub use component_row::DevComponentRow;
@@ -22,4 +23,5 @@ pub use scene_panel::DevScenePanel;
 pub use scene_simulation::DevSceneSimulation;
 pub use scene_tree::DevSceneTree;
 pub use transform_panel::DevTransformPanel;
+pub use ui_kit::DevUiKit;
 pub use vec3_editor::DevVec3Editor;

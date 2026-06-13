@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::components::resizable_panel::{ResizablePanel, Side};
+use crate::components::ui::{Button, Card, EmptyState, Page, PanelHeader, StateKind};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetProcDescsRequest, GetProcDescsResponse, GetProcTreeRequest, GetProcTreeResponse, ProcNode,
@@ -13,10 +15,6 @@ pub struct Selection {
     pub name: String,
     pub hashcode: i32,
 }
-
-const PANEL_MIN_WIDTH: f64 = 200.0;
-const PANEL_MAX_WIDTH: f64 = 800.0;
-const PANEL_DEFAULT_WIDTH: f64 = 320.0;
 
 #[component]
 pub fn ProcsView() -> Element {
@@ -94,27 +92,30 @@ pub struct ProcsPanelProps {
 
 #[component]
 pub fn ProcsPanel(props: ProcsPanelProps) -> Element {
-    let mut panel_width = use_signal(|| PANEL_DEFAULT_WIDTH);
-    let mut drag_state = use_signal(|| None::<DragState>);
     let on_refresh = props.on_refresh;
     let on_select = props.on_select;
-    let dragging = drag_state().is_some();
 
     rsx! {
-        div {
-            "data-component": "ProcsPanel",
-            class: "flex flex-col flex-1 min-h-0 relative",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm", "Proc Tree" }
-                button {
-                    class: "ml-auto text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: props.loading,
-                    onclick: move |_| on_refresh.call(()),
-                    if props.loading { "Refreshing..." } else { "Refresh" }
+        Page { row: true,
+            ResizablePanel {
+                side: Side::Left,
+                class: "bg-gray-800/80 border border-gray-700/70 rounded-xl shadow-lg shadow-black/30 overflow-hidden",
+                default_width: 320.0,
+                min_width: 200.0,
+                max_width: 800.0,
+                // card header: title + refresh button
+                div { class: "flex items-center gap-2 px-3 py-2 border-b border-gray-700/70 bg-gray-900/40 shrink-0",
+                    h3 { class: "text-white font-semibold text-sm truncate", "Proc Tree" }
+                    div { class: "ml-auto flex items-center gap-2",
+                        Button {
+                            disabled: props.loading,
+                            onclick: move |_| on_refresh.call(()),
+                            if props.loading { "Refreshing\u{2026}" } else { "Refresh" }
+                        }
+                    }
                 }
-            }
-            div { class: "flex flex-1 overflow-hidden",
-                div { class: "flex-1 overflow-auto bg-gray-800 p-4 font-mono text-xs",
+                // tree body
+                div { class: "flex-1 overflow-auto p-4 font-mono text-xs",
                     match props.data.as_ref() {
                         Some(Ok(resp)) => rsx! {
                             for root in resp.roots.iter() {
@@ -142,54 +143,34 @@ pub fn ProcsPanel(props: ProcsPanelProps) -> Element {
                             }
                         },
                         Some(Err(err)) => rsx! {
-                            p { class: "text-red-500", "Error: {err}" }
+                            EmptyState { kind: StateKind::Error, message: "Error: {err}" }
                         },
                         None => rsx! {
-                            p { class: "text-gray-400", "Loading proc tree..." }
+                            EmptyState { kind: StateKind::Loading, message: "Loading proc tree\u{2026}" }
                         },
-                    }
-                }
-                if let Some(sel) = props.selected.clone() {
-                    div {
-                        // a thin 4px bar (bg-clip-content keeps it slim) padded out into a wider invisible grab zone
-                        class: "w-1 box-content px-1 shrink-0 bg-gray-700 hover:bg-indigo-500 bg-clip-content cursor-col-resize",
-                        onmousedown: move |e| {
-                            drag_state.set(Some(DragState {
-                                start_x: e.client_coordinates().x,
-                                start_width: panel_width(),
-                            }));
-                        },
-                    }
-                    DescsPanel {
-                        selection: sel,
-                        width: panel_width(),
-                        data: props.descs_data.clone(),
                     }
                 }
             }
-            if dragging {
-                div {
-                    class: "absolute inset-0 z-50 cursor-col-resize",
-                    onmousemove: move |e| {
-                        if let Some(state) = drag_state() {
-                            let delta = state.start_x - e.client_coordinates().x;
-                            let new_width = (state.start_width + delta)
-                                .clamp(PANEL_MIN_WIDTH, PANEL_MAX_WIDTH);
-                            panel_width.set(new_width);
-                        }
-                    },
-                    onmouseup: move |_| drag_state.set(None),
-                    onmouseleave: move |_| drag_state.set(None),
+            // right pane: desc inspector, only shown when something is selected
+            if let Some(sel) = props.selected.clone() {
+                DescsPanel {
+                    selection: sel,
+                    width: 0.0,
+                    data: props.descs_data.clone(),
+                }
+            } else {
+                Card {
+                    class: "flex-1",
+                    padded: false,
+                    PanelHeader { title: "Descriptors", subtitle: "No selection".to_string() }
+                    EmptyState {
+                        kind: StateKind::Empty,
+                        message: "Select a proc node in the tree to see its descriptors.",
+                    }
                 }
             }
         }
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-struct DragState {
-    start_x: f64,
-    start_width: f64,
 }
 
 #[derive(PartialEq, Clone, Props)]
@@ -210,9 +191,9 @@ pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
     let caret = if !has_children {
         "  "
     } else if expanded() {
-        "▼ "
+        "\u{25BC} "
     } else {
-        "▶ "
+        "\u{25B6} "
     };
 
     let mut toggle_expand = move |_: Event<MouseData>| {
@@ -227,7 +208,11 @@ pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
         .map(|s| s.root == props.root_label && s.path == props.path)
         .unwrap_or(false);
 
-    let row_bg = if is_selected { "bg-indigo-900" } else { "" };
+    let row_bg = if is_selected {
+        "bg-indigo-500/15 ring-1 ring-indigo-500/40"
+    } else {
+        "hover:bg-gray-700/50"
+    };
 
     let select = {
         let root_label = props.root_label.clone();
@@ -248,7 +233,7 @@ pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
     rsx! {
         div {
             div {
-                class: "flex items-baseline gap-2 py-0.5 px-1 hover:bg-gray-700 rounded cursor-pointer select-none {row_bg}",
+                class: "flex items-baseline gap-2 py-0.5 px-1 rounded cursor-pointer select-none transition-colors {row_bg}",
                 onclick: select,
                 span {
                     class: "text-gray-500 w-4",
@@ -259,7 +244,7 @@ pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
                     "{caret}"
                 }
                 if props.is_next {
-                    span { class: "text-indigo-400 text-[10px] w-3", "↓" }
+                    span { class: "text-indigo-400 text-[10px] w-3", "\u{2193}" }
                 } else {
                     span { class: "w-3" }
                 }
@@ -296,25 +281,22 @@ pub fn ProcTreeNode(props: ProcTreeNodeProps) -> Element {
 #[derive(PartialEq, Clone, Props)]
 pub struct DescsPanelProps {
     pub selection: Selection,
+    // width is no longer applied as a style (ResizablePanel on the left controls the split now),
+    // kept in the signature so callers that were already passing it don't need to change
     pub width: f64,
     pub data: Option<Result<GetProcDescsResponse, String>>,
 }
 
 #[component]
 pub fn DescsPanel(props: DescsPanelProps) -> Element {
-    let width = props.width as i32;
-
     rsx! {
         div {
-            class: "shrink-0 bg-gray-900 overflow-auto font-mono text-xs",
-            style: "width: {width}px",
-            div { class: "px-3 py-2 bg-gray-800 border-b border-gray-700",
-                h3 { class: "text-white font-bold text-sm", "{props.selection.name}" }
-                p { class: "text-gray-500 text-xs",
-                    "#{props.selection.hashcode} • {props.selection.root} / {props.selection.path:?}"
-                }
+            class: "flex-1 flex flex-col min-h-0 bg-gray-800/80 border border-gray-700/70 rounded-xl shadow-lg shadow-black/30 overflow-hidden font-mono text-xs",
+            PanelHeader {
+                title: props.selection.name.clone(),
+                subtitle: format!("#{} \u{00B7} {} / {:?}", props.selection.hashcode, props.selection.root, props.selection.path),
             }
-            div { class: "p-3",
+            div { class: "flex-1 overflow-auto p-3",
                 match props.data.as_ref() {
                     Some(Ok(resp)) => {
                         let descs = resp.descs.clone();
@@ -324,21 +306,21 @@ pub fn DescsPanel(props: DescsPanelProps) -> Element {
                                 "Descs ({descs.len()})"
                             }
                             if descs.is_empty() {
-                                p { class: "text-gray-600 italic", "(no descriptors)" }
+                                EmptyState { kind: StateKind::Empty, message: "(no descriptors)", compact: true }
                             }
                             for (i, info) in descs.iter().enumerate() {
                                 div {
                                     key: "{i}",
                                     class: if i as i32 == current {
-                                        "flex flex-col py-0.5 px-1 rounded bg-indigo-900 text-yellow-300"
+                                        "flex flex-col py-0.5 px-1 rounded bg-indigo-500/15 ring-1 ring-indigo-500/40 text-yellow-300"
                                     } else {
-                                        "flex flex-col py-0.5 px-1 rounded hover:bg-gray-800 text-gray-200"
+                                        "flex flex-col py-0.5 px-1 rounded hover:bg-gray-700/50 text-gray-200"
                                     },
                                     div { class: "flex items-baseline gap-2",
                                         span { class: "text-gray-500 w-8 text-right", "{i}" }
                                         span { "{info.kind}" }
                                         if i as i32 == current {
-                                            span { class: "ml-auto text-[10px] text-yellow-400", "← current" }
+                                            span { class: "ml-auto text-[10px] text-yellow-400", "\u{2190} current" }
                                         }
                                     }
                                     if let Some(m) = info.method.clone() {
@@ -352,10 +334,10 @@ pub fn DescsPanel(props: DescsPanelProps) -> Element {
                         }
                     }
                     Some(Err(err)) => rsx! {
-                        p { class: "text-red-500", "Error: {err}" }
+                        EmptyState { kind: StateKind::Error, message: "Error: {err}" }
                     },
                     None => rsx! {
-                        p { class: "text-gray-400", "Loading..." }
+                        EmptyState { kind: StateKind::Loading, message: "Loading\u{2026}" }
                     },
                 }
             }

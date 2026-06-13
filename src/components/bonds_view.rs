@@ -1,9 +1,13 @@
 use dioxus::prelude::*;
 
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, Card, EditableNumber, EmptyState, ListRow, Page, SearchField, SectionLabel, StateKind,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
-    BondHolderInfo, GetBondHoldersRequest, GetBondHoldersResponse, HolderBond, SetHolderBondRequest, SetHolderBondResponse,
+    BondHolderInfo, GetBondHoldersRequest, GetBondHoldersResponse, HolderBond, SetHolderBondRequest,
+    SetHolderBondResponse,
 };
 use crate::rpc;
 
@@ -33,44 +37,49 @@ pub fn BondsView() -> Element {
     }
 
     rsx! {
-        div { class: "flex flex-col flex-1 min-h-0",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm", "Bond Holders" }
-                input {
-                    class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                    placeholder: "Filter...",
-                    value: "{search}",
-                    oninput: move |e| search.set(e.value()),
-                }
-                button {
-                    class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
-                    disabled: loading(),
-                    onclick: move |_| fetch(),
-                    if loading() { "Refreshing..." } else { "Refresh" }
-                }
-            }
-            div { class: "flex-1 overflow-auto bg-gray-800 p-4 text-xs",
-                match data() {
-                    Some(Ok(resp)) => {
-                        let query = search().to_lowercase();
-                        let filtered: Vec<_> = resp.holders.iter()
-                            .filter(|h| query.is_empty() || h.name.to_lowercase().contains(&query) || h.gid.to_lowercase().contains(&query))
-                            .cloned()
-                            .collect();
-                        let total = resp.holders.len();
-                        rsx! {
+        Page {
+            Card {
+                class: "flex-1",
+                padded: false,
+                header: rsx! {
+                    SearchField {
+                        value: search(),
+                        placeholder: "Filter holders\u{2026}",
+                        class: "w-56",
+                        on_input: move |v| search.set(v),
+                    }
+                    Button {
+                        disabled: loading(),
+                        onclick: move |_| fetch(),
+                        if loading() { "Refreshing\u{2026}" } else { "Refresh" }
+                    }
+                },
+                div { class: "p-3",
+                    match data() {
+                        None => rsx! { EmptyState { kind: StateKind::Loading, message: "Loading bond holders\u{2026}" } },
+                        Some(Err(err)) => rsx! {
+                            EmptyState { kind: StateKind::Error, message: "Error: {err}" }
+                        },
+                        Some(Ok(resp)) => {
+                            let query = search().to_lowercase();
+                            let total = resp.holders.len();
+                            let filtered: Vec<_> = resp.holders.into_iter()
+                                .filter(|h| query.is_empty()
+                                    || h.name.to_lowercase().contains(&query)
+                                    || h.gid.to_lowercase().contains(&query))
+                                .collect();
                             if total == 0 {
-                                p { class: "text-gray-500", "No bond holders in the pool yet." }
+                                rsx! { EmptyState { kind: StateKind::Empty, message: "No bond holders in the pool yet." } }
                             } else {
-                                p { class: "text-gray-500 mb-2", "{filtered.len()} / {total} Emblems" }
-                            }
-                            for h in filtered.into_iter() {
-                                HolderRow { key: "{h.gid}", holder: h }
+                                rsx! {
+                                    SectionLabel { label: "{filtered.len()} / {total} Emblems", class: "mb-2" }
+                                    for h in filtered.into_iter() {
+                                        HolderRow { key: "{h.gid}", holder: h }
+                                    }
+                                }
                             }
                         }
                     }
-                    Some(Err(err)) => rsx! { p { class: "text-red-500", "Error: {err}" } },
-                    None => rsx! { p { class: "text-gray-400", "Loading bond holders..." } },
                 }
             }
         }
@@ -80,26 +89,25 @@ pub fn BondsView() -> Element {
 #[component]
 fn HolderRow(holder: BondHolderInfo) -> Element {
     let mut open = use_signal(|| false);
-    let arrow = if open() { "▾" } else { "▸" };
+    let arrow = if open() { "\u{25BE}" } else { "\u{25B8}" };
     let bond_count = holder.bonds.len();
 
     rsx! {
-        div { class: "border-b border-gray-700/50",
-            button {
-                class: "w-full flex items-center gap-2 py-1 text-left hover:bg-gray-900/40 rounded",
+        div {
+            ListRow {
                 onclick: move |_| open.toggle(),
-                span { class: "text-gray-500 w-4 shrink-0", "{arrow}" }
+                span { class: "text-gray-500 w-4 shrink-0 select-none", "{arrow}" }
                 span { class: "text-white flex-1 truncate", title: "{holder.gid}", "{holder.name}" }
-                span { class: "text-gray-500 w-20 text-right", "{bond_count} bonds" }
-                span { class: "text-yellow-300 w-24 text-right", title: "Max level", "Lv {holder.max_level}" }
-                span { class: "text-indigo-300 w-24 text-right", title: "Units at A rank", "{holder.a_rank_count} @ A" }
+                span { class: "text-gray-500 text-xs w-20 text-right shrink-0", "{bond_count} bonds" }
+                span { class: "text-amber-300 text-xs w-24 text-right shrink-0", title: "Max level", "Lv {holder.max_level}" }
+                span { class: "text-indigo-300 text-xs w-24 text-right shrink-0", title: "Units at A rank", "{holder.a_rank_count} @ A" }
             }
             if open() {
-                div { class: "pl-6 pb-1",
+                div { class: "pl-8 pb-1",
                     if holder.bonds.is_empty() {
-                        p { class: "text-gray-500 py-0.5", "No bonds recorded." }
+                        EmptyState { kind: StateKind::Empty, message: "No bonds recorded.", compact: true }
                     } else {
-                        div { class: "flex items-center gap-2 py-0.5 text-gray-500",
+                        div { class: "flex items-center gap-2 py-0.5 text-gray-500 text-xs",
                             span { class: "flex-1", "Unit" }
                             span { class: "w-10 text-center", "Rank" }
                             span { class: "w-24 text-right", "Level" }
@@ -143,8 +151,8 @@ fn BondRow(props: BondRowProps) -> Element {
 
     let commit_level = {
         let (gid, pid) = (gid.clone(), pid.clone());
-        move |v: i32| {
-            let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: Some(v), exp: None };
+        move |v: i64| {
+            let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: Some(v as i32), exp: None };
             spawn(async move {
                 match rpc::call(&conn, req).await {
                     Ok(r) => apply_bond(cur, r),
@@ -155,8 +163,8 @@ fn BondRow(props: BondRowProps) -> Element {
     };
     let commit_exp = {
         let (gid, pid) = (gid.clone(), pid.clone());
-        move |v: i32| {
-            let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: None, exp: Some(v) };
+        move |v: i64| {
+            let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: None, exp: Some(v as i32) };
             spawn(async move {
                 match rpc::call(&conn, req).await {
                     Ok(r) => apply_bond(cur, r),
@@ -168,67 +176,17 @@ fn BondRow(props: BondRowProps) -> Element {
 
     let b = cur();
     rsx! {
-        div { class: "flex items-center gap-2 py-0.5",
-            span { class: "text-gray-300 flex-1 truncate", title: "{b.pid}", "{b.name}" }
-            span { class: "text-indigo-300 w-10 text-center", title: "Reliance / max", "{b.reliance}/{b.max_reliance}" }
+        ListRow {
+            span { class: "text-gray-300 flex-1 truncate text-xs", title: "{b.pid}", "{b.name}" }
+            span { class: "text-indigo-300 text-xs w-10 text-center", title: "Reliance / max", "{b.reliance}/{b.max_reliance}" }
             div { class: "w-24 flex items-center justify-end gap-1",
-                NumEdit { value: b.level, on_commit: commit_level }
+                EditableNumber { value: b.level as i64, width: "w-12", on_commit: commit_level }
                 span { class: "text-gray-500 text-[10px]", "/{b.max_level}" }
             }
             div { class: "w-32 flex items-center justify-end gap-1",
-                NumEdit { value: b.exp, on_commit: commit_exp }
+                EditableNumber { value: b.exp as i64, width: "w-16", on_commit: commit_exp }
                 span { class: "text-gray-500 text-[10px]", "({b.current_level_exp}\u{2192}{b.next_level_exp})" }
             }
-        }
-    }
-}
-
-// small inline integer field, commits on Enter or blur
-#[derive(PartialEq, Clone, Props)]
-struct NumEditProps {
-    value: i32,
-    on_commit: EventHandler<i32>,
-}
-
-#[component]
-fn NumEdit(props: NumEditProps) -> Element {
-    let mut draft = use_signal(|| props.value.to_string());
-    let mut last = use_signal(|| props.value);
-    if last() != props.value {
-        last.set(props.value);
-        draft.set(props.value.to_string());
-    }
-
-    let commit = {
-        let on_commit = props.on_commit;
-        let current = props.value;
-        move || {
-            if let Ok(v) = draft().trim().parse::<i32>() {
-                if v != current {
-                    on_commit.call(v);
-                }
-            }
-        }
-    };
-
-    rsx! {
-        input {
-            r#type: "number",
-            class: "w-16 px-1 py-0.5 bg-gray-900 text-yellow-300 rounded border border-gray-700 focus:border-indigo-500 focus:outline-none text-right text-xs",
-            value: "{draft}",
-            oninput: move |e| draft.set(e.value()),
-            onblur: {
-                let commit = commit.clone();
-                move |_| commit()
-            },
-            onkeydown: {
-                let commit = commit.clone();
-                move |e| {
-                    if e.key() == Key::Enter {
-                        commit();
-                    }
-                }
-            },
         }
     }
 }

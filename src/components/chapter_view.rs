@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
 
 use crate::components::toast::use_toasts;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, Checkbox, EmptyState, ListRow, SearchField, SectionLabel,
+    StateKind, Tone,
+};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetChaptersRequest, GetChaptersResponse, SetChapterClearedRequest, SetCurrentChapterRequest,
@@ -56,29 +60,27 @@ pub fn ChapterView() -> Element {
     };
 
     rsx! {
-        div {
-            "data-component": "ChapterView",
-            class: "flex flex-col flex-1 min-h-0",
-            div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700 shrink-0",
-                h2 { class: "text-white font-bold text-sm shrink-0", "Chapter" }
-                input {
-                    class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                    placeholder: "Filter chapters...",
-                    value: "{search}",
-                    oninput: move |e| search.set(e.value()),
+        Card {
+            class: "flex-1",
+            padded: false,
+            header: rsx! {
+                SearchField {
+                    value: search(),
+                    placeholder: "Filter chapters\u{2026}",
+                    class: "w-56",
+                    on_input: move |v| search.set(v),
                 }
-                button {
-                    class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
+                Button {
                     disabled: loading(),
                     onclick: move |_| refresh.call(()),
-                    if loading() { "Refreshing..." } else { "Refresh" }
+                    if loading() { "Refreshing\u{2026}" } else { "Refresh" }
                 }
-            }
-            div { class: "flex-1 overflow-auto bg-gray-800 p-4 text-sm",
+            },
+            div { class: "p-3",
                 match data() {
-                    None => rsx! { p { class: "text-gray-400", "Loading chapters..." } },
+                    None => rsx! { EmptyState { kind: StateKind::Loading, message: "Loading chapters\u{2026}" } },
                     Some(resp) if !resp.available => rsx! {
-                        p { class: "text-gray-500", "No save loaded. Load a save and hit Refresh." }
+                        EmptyState { kind: StateKind::Empty, message: "No save loaded. Load a save and hit Refresh." }
                     },
                     Some(resp) => {
                         let query = search().to_lowercase();
@@ -91,26 +93,21 @@ pub fn ChapterView() -> Element {
                                 || c.kind.to_lowercase().contains(&query))
                             .collect();
                         rsx! {
-                            p { class: "text-gray-500 mb-2 font-mono text-xs",
-                                "Current: {current}  ·  progress {progress}  ·  {chapters.len()} chapters"
+                            SectionLabel {
+                                label: "Current {current}  \u{00B7}  progress {progress}  \u{00B7}  {chapters.len()} chapters",
+                                class: "mb-2",
                             }
                             for ch in chapters.into_iter() {
-                                div {
+                                ListRow {
                                     key: "{ch.cid}",
-                                    class: if ch.is_current {
-                                        "flex items-center gap-3 py-1.5 px-2 rounded bg-indigo-900/40 border border-indigo-700"
-                                    } else {
-                                        "flex items-center gap-3 py-1.5 px-2 rounded hover:bg-gray-700"
-                                    },
-                                    label { class: "flex items-center gap-1.5 shrink-0 cursor-pointer", title: "Cleared",
-                                        input {
-                                            r#type: "checkbox",
-                                            checked: ch.cleared,
-                                            onchange: {
-                                                let cid = ch.cid.clone();
-                                                move |e: Event<FormData>| set_cleared((cid.clone(), e.checked()))
-                                            },
-                                        }
+                                    selected: ch.is_current,
+                                    Checkbox {
+                                        checked: ch.cleared,
+                                        title: "Cleared",
+                                        on_toggle: {
+                                            let cid = ch.cid.clone();
+                                            move |v| set_cleared((cid.clone(), v))
+                                        },
                                     }
                                     span {
                                         class: "text-gray-500 text-xs w-16 shrink-0 truncate",
@@ -127,8 +124,10 @@ pub fn ChapterView() -> Element {
                                         p { class: "text-gray-500 font-mono text-xs truncate", "{ch.cid}" }
                                     }
                                     if ch.story {
-                                        button {
-                                            class: "text-indigo-300 hover:text-indigo-200 text-xs border border-indigo-500/40 rounded px-2 py-0.5 shrink-0",
+                                        Button {
+                                            tone: Tone::Indigo,
+                                            variant: ButtonVariant::Outline,
+                                            size: ButtonSize::Sm,
                                             disabled: ch.is_current,
                                             title: "Make this the current chapter and reset it plus every later story chapter to not-complete. Earlier chapters are left as-is",
                                             onclick: {

@@ -3,6 +3,7 @@ use std::time::Duration;
 use dioxus::prelude::*;
 
 use super::scene_view::RevealRequest;
+use crate::components::ui::{EmptyState, SearchField, SectionLabel, StateKind};
 use crate::protocol::{SceneInfo, SceneNode};
 
 #[derive(PartialEq, Clone, Props)]
@@ -40,58 +41,36 @@ pub fn SceneTree(props: SceneTreeProps) -> Element {
     rsx! {
         div {
             "data-component": "SceneTree",
-            class: "p-4 font-mono text-sm",
+            class: "p-3 font-mono text-sm",
+            // sticky toolbar with scene count + search
             div {
-                class: "sticky top-0 z-10 bg-gray-800 -mx-4 -mt-4 mb-1 px-4 pt-4 pb-3 border-b border-gray-700",
-                div { class: "flex items-center gap-3 mb-2",
-                    span { class: "text-gray-500 text-xs",
-                        "{props.scenes.len()} scene(s), {total} nodes"
-                    }
-                }
-                div { class: "relative",
-                    input {
-                        class: "w-full px-3 py-1.5 pr-8 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
-                        placeholder: "Search nodes...",
-                        "autocomplete": "off",
-                        "autocapitalize": "off",
-                        "autocorrect": "off",
-                        "spellcheck": "false",
-                        value: "{search}",
-                        oninput: move |e| {
-                            let val = e.value();
-                            search.set(val.clone());
-                            let epoch = debounce_epoch() + 1;
-                            debounce_epoch.set(epoch);
-                            spawn(async move {
-                                tokio::time::sleep(Duration::from_millis(150)).await;
-                                if debounce_epoch() == epoch {
-                                    applied.set(val);
-                                }
-                            });
-                        },
-                    }
-                    if !search().is_empty() {
-                        button {
-                            class: "absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-white text-sm leading-none",
-                            "aria-label": "Clear search",
-                            onclick: move |_| {
-                                search.set(String::new());
-                                applied.set(String::new());
-                                debounce_epoch.set(debounce_epoch() + 1);
-                            },
-                            "✕"
-                        }
-                    }
+                class: "sticky top-0 z-10 bg-gray-800/95 -mx-3 -mt-3 mb-1 px-3 pt-3 pb-2 \
+                        border-b border-gray-700/70",
+                SectionLabel { label: "{props.scenes.len()} scene(s), {total} nodes", class: "mb-2" }
+                SearchField {
+                    value: search(),
+                    placeholder: "Search nodes\u{2026}",
+                    on_input: move |val: String| {
+                        search.set(val.clone());
+                        let epoch = debounce_epoch() + 1;
+                        debounce_epoch.set(epoch);
+                        spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(150)).await;
+                            if debounce_epoch() == epoch {
+                                applied.set(val);
+                            }
+                        });
+                    },
                 }
             }
             for (si, scene) in props.scenes.iter().enumerate() {
                 div { key: "{si}", class: "mb-4",
-                    h3 { class: "text-base font-bold mb-1",
-                        span { class: if scene.is_active { "text-yellow-300" } else { "text-gray-400" },
+                    h3 { class: "text-sm font-semibold mb-1 flex items-center gap-2",
+                        span { class: if scene.is_active { "text-amber-300" } else { "text-gray-400" },
                             "{scene.name}"
                         }
                         if scene.is_active {
-                            span { class: "text-yellow-300 text-xs ml-2", "(active)" }
+                            span { class: "text-amber-300 text-xs font-normal", "(active)" }
                         }
                     }
                     div { class: "ml-2",
@@ -113,7 +92,11 @@ pub fn SceneTree(props: SceneTreeProps) -> Element {
                                     }
                                 }
                                 if searching && filtered.is_empty() {
-                                    p { class: "text-gray-500 italic text-xs", "No matches in this scene" }
+                                    EmptyState {
+                                        kind: StateKind::Empty,
+                                        message: "No matches in this scene",
+                                        compact: true,
+                                    }
                                 }
                             }
                         }
@@ -139,7 +122,7 @@ fn TreeNode(props: TreeNodeProps) -> Element {
 
     // Effective open state is reactive: open while searching, or when the selected
     // node is this node or somewhere in its subtree (so clearing the search keeps the
-    // selected node's path revealed — its siblings via the open ancestors, its children
+    // selected node's path revealed -- its siblings via the open ancestors, its children
     // via itself). A manual click overrides until the user toggles again.
     let reveals_selection = props.selected_path.as_deref().map_or(false, |sel| {
         props.node.path == sel || sel.starts_with(&format!("{}/", props.node.path))
@@ -187,7 +170,13 @@ fn TreeNode(props: TreeNodeProps) -> Element {
 
     let is_selected = props.selected_path.as_ref() == Some(&props.node.path);
     let cursor = if has_children { "cursor-pointer select-none" } else { "select-none" };
-    let bg = if is_selected { "bg-indigo-900" } else { "" };
+
+    // selected highlight matches the kit's ListRow active state
+    let row_bg = if is_selected {
+        "bg-indigo-500/15 ring-1 ring-inset ring-indigo-500/40"
+    } else {
+        "hover:bg-gray-700/50"
+    };
 
     let visible_children: Vec<&SceneNode> = if let Some(ref query) = props.filter {
         props.node.children.iter().filter(|c| node_matches(c, query)).collect()
@@ -195,8 +184,9 @@ fn TreeNode(props: TreeNodeProps) -> Element {
         props.node.children.iter().collect()
     };
 
+    // highlight search matches in amber; active = green, inactive = struck-through gray
     let name_class = if props.filter.as_ref().map_or(false, |q| props.node.name.to_lowercase().contains(q.as_str())) {
-        "text-yellow-300 font-bold"
+        "text-amber-300 font-semibold"
     } else if props.node.active {
         "text-green-400"
     } else {
@@ -219,28 +209,28 @@ fn TreeNode(props: TreeNodeProps) -> Element {
     rsx! {
         div {
             div {
-                class: "flex items-center py-0.5 hover:bg-gray-700 rounded px-1 {cursor} {bg} group",
+                class: "flex items-center py-0.5 rounded px-1 transition-colors {row_bg} {cursor} group",
                 "data-tree-selected": "{is_selected}",
                 onclick: select_node,
                 span {
-                    class: "text-gray-500 text-xs w-4",
+                    class: "text-gray-500 text-xs w-4 shrink-0",
                     onclick: toggle_expand,
                     "{icon}"
                 }
-                span { class: "{name_class}", "{props.node.name}" }
+                span { class: "{name_class} truncate flex-1", "{props.node.name}" }
                 if has_children {
-                    span { class: "text-gray-500 ml-2 text-xs",
+                    span { class: "text-gray-600 ml-1.5 text-xs shrink-0",
                         "({props.node.children.len()})"
                     }
                 }
                 button {
-                    class: "ml-auto text-xs {toggle_color} opacity-0 group-hover:opacity-100 px-1",
+                    class: "ml-auto text-xs {toggle_color} opacity-0 group-hover:opacity-100 px-1 shrink-0",
                     onclick: toggle_active,
                     "{toggle_icon}"
                 }
             }
             if has_children && is_open {
-                div { class: "ml-4 border-l border-gray-700 pl-2",
+                div { class: "ml-4 border-l border-gray-700/60 pl-2",
                     for (i, child) in visible_children.iter().enumerate() {
                         TreeNode {
                             key: "{i}",

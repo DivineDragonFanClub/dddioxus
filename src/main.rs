@@ -3,6 +3,7 @@
 extern crate core;
 
 use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
+use dioxus::desktop::tao::dpi::LogicalSize;
 use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
@@ -20,13 +21,14 @@ use components::mess_view::MessView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
+use components::ui::Page;
 use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]
 use dev::{
     DevComponentRow, DevComponentsListPanel, DevDescsPanel, DevGlobalRow, DevGlobalsPanel,
     DevIndex, DevProcTreeNode, DevProcsPanel, DevScenePanel, DevSceneSimulation, DevSceneTree,
-    DevTransformPanel, DevVec3Editor,
+    DevTransformPanel, DevUiKit, DevVec3Editor,
 };
 
 mod components;
@@ -63,6 +65,9 @@ pub enum Route {
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev")]
         DevIndex {},
+        #[cfg(any(debug_assertions, feature = "dev"))]
+        #[route("/dev/ui-kit")]
+        DevUiKit {},
         #[cfg(any(debug_assertions, feature = "dev"))]
         #[route("/dev/vec3-editor")]
         DevVec3Editor {},
@@ -104,7 +109,9 @@ pub enum Route {
 fn main() {
     dioxus_logger::init(Level::INFO).expect("failed to init logger");
 
-    let window = WindowBuilder::new().with_title("Divine Debugging Dragon");
+    let window = WindowBuilder::new()
+        .with_title("Divine Debugging Dragon")
+        .with_inner_size(LogicalSize::new(1280.0, 720.0));
 
     let menu = Menu::new();
     let edit_menu = Submenu::new("Edit", true);
@@ -136,7 +143,7 @@ fn App() -> Element {
 
     rsx! {
         document::Stylesheet { href: TAILWIND }
-        document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; }}" }
+        document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif; }} input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button {{ -webkit-appearance: none; margin: 0; }} input[type=number] {{ -moz-appearance: textfield; appearance: textfield; }}" }
         div { class: "flex flex-col h-screen text-white",
             ConnectionProvider {
                 CatalogProvider {
@@ -198,7 +205,7 @@ fn Progress() -> Element {
 
 #[component]
 fn Variables() -> Element {
-    rsx! { GlobalsView { temporary_only: false } }
+    rsx! { Page { GlobalsView { temporary_only: false } } }
 }
 
 #[component]
