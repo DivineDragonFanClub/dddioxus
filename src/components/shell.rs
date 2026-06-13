@@ -47,7 +47,7 @@ fn Sidebar() -> Element {
             NavItem { route: Route::Map {}, label: "Map" }
             NavItem { route: Route::Forces {}, label: "Forces" }
             NavItem { route: Route::Bonds {}, label: "Bonds" }
-            NavItem { route: Route::Globals {}, label: "Globals" }
+            NavItem { route: Route::Variables {}, label: "Variables" }
             NavItem { route: Route::Procs {}, label: "Procs" }
             NavItem { route: Route::Mess {}, label: "Mess" }
             NavItem { route: Route::Script {}, label: "Script" }

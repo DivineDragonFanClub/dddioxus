@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
-    ClassInfo, GetClassesRequest, GetItemsRequest, GetSkillsRequest, ItemCatalogEntry, SkillCatalogEntry,
+    ClassInfo, GetClassesRequest, GetItemsRequest, GetSkillsRequest, ItemCatalogEntry,
+    SkillCatalogEntry,
 };
 use crate::rpc;
 

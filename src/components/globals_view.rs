@@ -68,22 +68,45 @@ pub struct GlobalsPanelProps {
 #[component]
 pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
     let mut search = use_signal(String::new);
+    // "all" | "number" | "string"
+    let mut kind_filter = use_signal(|| "all".to_string());
+    // "all" | "global" | "local", locked to local on the map embed
+    let mut scope_filter = use_signal(|| "all".to_string());
     let on_refresh = props.on_refresh;
     let on_commit = props.on_commit;
+    let select_class = "bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm px-2 py-1";
 
     rsx! {
         div {
             "data-component": "GlobalsPanel",
             class: "flex flex-col flex-1 min-h-0",
             div { class: "flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-gray-700",
-                h2 { class: "text-white font-bold text-sm",
-                    if props.temporary_only { "Temporary Variables" } else { "Global Variables" }
+                h2 { class: "text-white font-bold text-sm shrink-0",
+                    if props.temporary_only { "Local Variables" } else { "Variables" }
                 }
                 input {
                     class: "ml-3 flex-1 px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
                     placeholder: "Filter...",
                     value: "{search}",
                     oninput: move |e| search.set(e.value()),
+                }
+                select {
+                    class: "{select_class}",
+                    title: "Value type",
+                    onchange: move |e| kind_filter.set(e.value()),
+                    option { value: "all", selected: kind_filter() == "all", "All types" }
+                    option { value: "number", selected: kind_filter() == "number", "Number" }
+                    option { value: "string", selected: kind_filter() == "string", "String" }
+                }
+                if !props.temporary_only {
+                    select {
+                        class: "{select_class}",
+                        title: "Scope",
+                        onchange: move |e| scope_filter.set(e.value()),
+                        option { value: "all", selected: scope_filter() == "all", "All scopes" }
+                        option { value: "global", selected: scope_filter() == "global", "Global" }
+                        option { value: "local", selected: scope_filter() == "local", "Local" }
+                    }
                 }
                 button {
                     class: "text-white bg-indigo-500 border-0 py-1 px-4 focus:outline-none hover:bg-indigo-600 rounded text-sm",
@@ -97,10 +120,23 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
                     Some(Ok(resp)) => {
                         let query = search().to_lowercase();
                         let temporary_only = props.temporary_only;
+                        let kind = kind_filter();
+                        let scope = scope_filter();
+                        // the map embed only ever shows local vars, otherwise honor the scope dropdown
                         let pool: Vec<_> = resp.variables.iter()
                             .filter(|v| !temporary_only || v.temporary)
                             .collect();
                         let filtered: Vec<_> = pool.iter()
+                            .filter(|v| match kind.as_str() {
+                                "number" => v.kind == "number",
+                                "string" => v.kind == "string",
+                                _ => true,
+                            })
+                            .filter(|v| match scope.as_str() {
+                                "global" => !v.temporary,
+                                "local" => v.temporary,
+                                _ => true,
+                            })
                             .filter(|v| query.is_empty() || v.name.to_lowercase().contains(&query))
                             .map(|v| (*v).clone())
                             .collect();
@@ -108,7 +144,7 @@ pub fn GlobalsPanel(props: GlobalsPanelProps) -> Element {
                         let shown = filtered.len();
                         rsx! {
                             p { class: "text-gray-500 mb-2",
-                                if query.is_empty() { "{total} variables" }
+                                if shown == total { "{total} variables" }
                                 else { "{shown} / {total} variables" }
                             }
                             for v in filtered.into_iter() {

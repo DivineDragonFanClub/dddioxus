@@ -49,8 +49,8 @@ pub enum Route {
         Forces {},
         #[route("/bonds")]
         Bonds {},
-        #[route("/globals")]
-        Globals {},
+        #[route("/variables")]
+        Variables {},
         #[route("/procs")]
         Procs {},
         #[route("/mess")]
@@ -192,7 +192,7 @@ fn Bonds() -> Element {
 }
 
 #[component]
-fn Globals() -> Element {
+fn Variables() -> Element {
     rsx! { GlobalsView { temporary_only: false } }
 }
 
