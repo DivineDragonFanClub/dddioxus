@@ -8,6 +8,7 @@ mod unit_inspector;
 use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
+use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     ClassInfo, ForceInfo, GetForcesRequest, GetUnitsRequest, ItemCatalogEntry, MoveUnitRequest,
@@ -20,6 +21,7 @@ pub use unit_inspector::UnitInspector;
 pub fn ForceView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
     let catalogs = use_context::<Signal<Catalogs>>();
+    let toasts = use_toasts();
     let mut forces = use_signal(|| None::<Result<Vec<ForceInfo>, String>>);
     let mut selected = use_signal(|| None::<i32>);
     let mut units = use_signal(|| None::<Result<Vec<UnitSummary>, String>>);
@@ -47,41 +49,46 @@ pub fn ForceView() -> Element {
 
     let on_class_change = move |req: SetClassRequest| {
         spawn(async move {
-            if let Ok(resp) = rpc::call(&conn, req.clone()).await {
-                units.with_mut(|slot| {
+            match rpc::call(&conn, req.clone()).await {
+                Ok(resp) => units.with_mut(|slot| {
                     if let Some(Ok(list)) = slot.as_mut() {
                         if let Some(u) = list.iter_mut().find(|u| u.index == req.unit_index) {
                             u.class_jid = resp.class_jid;
                         }
                     }
-                });
+                }),
+                Err(e) => toasts.show(format!("Class change failed: {e}")),
             }
         });
     };
 
     let on_acted = move |req: SetActedRequest| {
         spawn(async move {
-            if let Ok(resp) = rpc::call(&conn, req.clone()).await {
-                units.with_mut(|slot| {
+            match rpc::call(&conn, req.clone()).await {
+                Ok(resp) => units.with_mut(|slot| {
                     if let Some(Ok(list)) = slot.as_mut() {
                         if let Some(u) = list.iter_mut().find(|u| u.index == req.unit_index) {
                             u.acted = resp.acted;
                         }
                     }
-                });
+                }),
+                Err(e) => toasts.show(format!("Could not change acted: {e}")),
             }
         });
     };
 
     let on_move = move |req: MoveUnitRequest| {
         spawn(async move {
-            if rpc::call(&conn, req.clone()).await.is_ok() {
-                if let Ok(u) = rpc::call(&conn, GetUnitsRequest { force_id: req.from_force_id }).await {
-                    units.set(Some(Ok(u.units)));
+            match rpc::call(&conn, req.clone()).await {
+                Ok(_) => {
+                    if let Ok(u) = rpc::call(&conn, GetUnitsRequest { force_id: req.from_force_id }).await {
+                        units.set(Some(Ok(u.units)));
+                    }
+                    if let Ok(f) = rpc::call(&conn, GetForcesRequest).await {
+                        forces.set(Some(Ok(f.forces)));
+                    }
                 }
-                if let Ok(f) = rpc::call(&conn, GetForcesRequest).await {
-                    forces.set(Some(Ok(f.forces)));
-                }
+                Err(e) => toasts.show(format!("Move failed: {e}")),
             }
         });
     };
@@ -170,8 +177,9 @@ pub struct UnitsPanelProps {
 
 #[component]
 pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
+    let mut search = use_signal(String::new);
     rsx! {
-        div { class: "flex-1 min-h-0 overflow-auto bg-gray-800",
+        div { class: "flex flex-col flex-1 min-h-0 bg-gray-800",
             if props.force_id.is_none() {
                 div { class: "p-6 text-gray-500 text-sm", "Pick a force to see its units." }
             } else if props.loading {
@@ -181,18 +189,41 @@ pub fn UnitsPanel(props: UnitsPanelProps) -> Element {
                     Some(Ok(list)) if list.is_empty() => rsx! {
                         div { class: "p-6 text-gray-500 text-sm", "No units in this force." }
                     },
-                    Some(Ok(list)) => rsx! {
-                        for u in list.clone().into_iter() {
-                            UnitInspector {
-                                key: "{u.index}",
-                                force_id: props.force_id.unwrap_or(0),
-                                unit: u,
-                                classes: props.classes.clone(),
-                                item_catalog: props.item_catalog.clone(),
-                                force_options: props.force_options.clone(),
-                                on_class_change: props.on_class_change,
-                                on_move: props.on_move,
-                                on_acted: props.on_acted,
+                    Some(Ok(list)) => {
+                        let query = search().to_lowercase();
+                        let filtered: Vec<_> = list.iter()
+                            .filter(|u| query.is_empty()
+                                || u.name.to_lowercase().contains(&query)
+                                || u.class_jid.to_lowercase().contains(&query))
+                            .cloned()
+                            .collect();
+                        let shown = filtered.len();
+                        rsx! {
+                            div { class: "px-3 py-2 bg-gray-900 border-b border-gray-700 shrink-0",
+                                input {
+                                    class: "w-full px-3 py-1 bg-gray-700 text-white rounded border border-gray-600 focus:border-indigo-500 focus:outline-none text-sm",
+                                    placeholder: "Filter units...",
+                                    value: "{search}",
+                                    oninput: move |e| search.set(e.value()),
+                                }
+                            }
+                            div { class: "flex-1 min-h-0 overflow-auto",
+                                for u in filtered.into_iter() {
+                                    UnitInspector {
+                                        key: "{u.index}",
+                                        force_id: props.force_id.unwrap_or(0),
+                                        unit: u,
+                                        classes: props.classes.clone(),
+                                        item_catalog: props.item_catalog.clone(),
+                                        force_options: props.force_options.clone(),
+                                        on_class_change: props.on_class_change,
+                                        on_move: props.on_move,
+                                        on_acted: props.on_acted,
+                                    }
+                                }
+                                if shown == 0 {
+                                    p { class: "text-gray-500 italic text-sm p-6", "No units match the filter." }
+                                }
                             }
                         }
                     },

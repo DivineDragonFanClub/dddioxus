@@ -47,23 +47,6 @@ impl Command for GetMessLabelsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LookupMessTextRequest {
-    pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LookupMessTextResponse {
-    pub label: String,
-    pub text: Option<String>,
-    pub file: Option<String>,
-}
-
-impl Command for LookupMessTextRequest {
-    const ID: CommandId = CommandId::new(MESS_NS, 2);
-    type Response = LookupMessTextResponse;
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetMessTextRequest {
     pub label: String,
     pub text: String,
@@ -75,6 +58,6 @@ pub struct SetMessTextResponse {
 }
 
 impl Command for SetMessTextRequest {
-    const ID: CommandId = CommandId::new(MESS_NS, 3);
+    const ID: CommandId = CommandId::new(MESS_NS, 2);
     type Response = SetMessTextResponse;
 }

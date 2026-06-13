@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     GetMessLabelsRequest, GetMessLabelsResponse, ListMessFilesRequest, ListMessFilesResponse,
@@ -321,6 +322,7 @@ struct EntryRowProps {
 #[component]
 fn EntryRow(props: EntryRowProps) -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let toasts = use_toasts();
     let mut editing = use_signal(|| false);
     // current shows the live value, draft is what's being typed
     let mut current = use_signal(|| props.entry.text.clone());
@@ -336,9 +338,13 @@ fn EntryRow(props: EntryRowProps) -> Element {
         let label = label.clone();
         let text = draft();
         spawn(async move {
-            if let Ok(resp) = rpc::call(&conn, SetMessTextRequest { label, text }).await {
-                current.set(resp.text);
-                editing.set(false);
+            match rpc::call(&conn, SetMessTextRequest { label, text }).await {
+                Ok(resp) => {
+                    current.set(resp.text);
+                    editing.set(false);
+                    toasts.show("Text saved.");
+                }
+                Err(e) => toasts.show(format!("Save failed: {e}")),
             }
             saving.set(false);
         });

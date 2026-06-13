@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     BondHolderInfo, GetBondHoldersRequest, GetBondHoldersResponse, HolderBond, SetHolderBondRequest, SetHolderBondResponse,
@@ -120,9 +121,8 @@ fn apply_bond(mut cur: Signal<HolderBond>, r: SetHolderBondResponse) {
         b.exp = r.exp;
         b.current_level_exp = r.current_level_exp;
         b.next_level_exp = r.next_level_exp;
-        b.max_level = r.max_level;
         b.reliance = r.reliance;
-        b.max_reliance = r.max_reliance;
+        // max_level / max_reliance are static per bond, leave them as the getter set them
     });
 }
 
@@ -135,6 +135,7 @@ struct BondRowProps {
 #[component]
 fn BondRow(props: BondRowProps) -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let toasts = use_toasts();
     // live values, updated from each edit's read-back (level and exp drag each other server-side)
     let cur = use_signal(|| props.bond.clone());
     let gid = props.gid.clone();
@@ -145,8 +146,9 @@ fn BondRow(props: BondRowProps) -> Element {
         move |v: i32| {
             let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: Some(v), exp: None };
             spawn(async move {
-                if let Ok(r) = rpc::call(&conn, req).await {
-                    apply_bond(cur, r);
+                match rpc::call(&conn, req).await {
+                    Ok(r) => apply_bond(cur, r),
+                    Err(e) => toasts.show(format!("Bond level edit failed: {e}")),
                 }
             });
         }
@@ -156,8 +158,9 @@ fn BondRow(props: BondRowProps) -> Element {
         move |v: i32| {
             let req = SetHolderBondRequest { gid: gid.clone(), pid: pid.clone(), level: None, exp: Some(v) };
             spawn(async move {
-                if let Ok(r) = rpc::call(&conn, req).await {
-                    apply_bond(cur, r);
+                match rpc::call(&conn, req).await {
+                    Ok(r) => apply_bond(cur, r),
+                    Err(e) => toasts.show(format!("Bond exp edit failed: {e}")),
                 }
             });
         }

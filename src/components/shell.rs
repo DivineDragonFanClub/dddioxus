@@ -45,12 +45,12 @@ fn Sidebar() -> Element {
         nav { class: "w-40 shrink-0 bg-gray-950 border-r border-gray-700 flex flex-col py-2",
             NavItem { route: Route::Scene {}, label: "Scene" }
             NavItem { route: Route::Map {}, label: "Map" }
+            NavItem { route: Route::Progress {}, label: "Progress" }
             NavItem { route: Route::Forces {}, label: "Forces" }
             NavItem { route: Route::Bonds {}, label: "Bonds" }
             NavItem { route: Route::Variables {}, label: "Variables" }
             NavItem { route: Route::Procs {}, label: "Procs" }
             NavItem { route: Route::Mess {}, label: "Mess" }
-            NavItem { route: Route::Script {}, label: "Script" }
             NavItem { route: Route::Cutscene {}, label: "Cutscene" }
             {dev_nav_item()}
         }

@@ -14,11 +14,11 @@ use components::toast::ToastProvider;
 use components::cutscene_view::CutsceneView;
 use components::forces::ForceView;
 use components::map_view::MapView;
+use components::progress_view::ProgressView;
 use components::globals_view::GlobalsView;
 use components::mess_view::MessView;
 use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
-use components::script_view::ScriptView;
 use components::shell::Shell;
 use hooks::connection::use_connection;
 
@@ -45,6 +45,8 @@ pub enum Route {
         Scene {},
         #[route("/map")]
         Map {},
+        #[route("/progress")]
+        Progress {},
         #[route("/forces")]
         Forces {},
         #[route("/bonds")]
@@ -55,8 +57,6 @@ pub enum Route {
         Procs {},
         #[route("/mess")]
         Mess {},
-        #[route("/script")]
-        Script {},
         #[route("/cutscene")]
         Cutscene {},
 
@@ -192,6 +192,11 @@ fn Bonds() -> Element {
 }
 
 #[component]
+fn Progress() -> Element {
+    rsx! { ProgressView {} }
+}
+
+#[component]
 fn Variables() -> Element {
     rsx! { GlobalsView { temporary_only: false } }
 }
@@ -204,11 +209,6 @@ fn Procs() -> Element {
 #[component]
 fn Mess() -> Element {
     rsx! { MessView {} }
-}
-
-#[component]
-fn Script() -> Element {
-    rsx! { ScriptView {} }
 }
 
 #[component]

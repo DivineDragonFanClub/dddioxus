@@ -34,7 +34,6 @@ impl Command for GetUnitBondsRequest {
 pub struct SetBondLevelResponse {
     pub level: i32,
     pub exp: i32,
-    pub max_level: i32,
     pub reliance: String,
 }
 
@@ -100,9 +99,7 @@ pub struct SetHolderBondResponse {
     pub exp: i32,
     pub current_level_exp: i32,
     pub next_level_exp: i32,
-    pub max_level: i32,
     pub reliance: String,
-    pub max_reliance: String,
 }
 
 impl Command for SetHolderBondRequest {

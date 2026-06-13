@@ -41,7 +41,6 @@ pub fn BondInspector(props: BondInspectorProps) -> Element {
                         if let Some(b) = list.iter_mut().find(|b| b.gid == gid) {
                             b.level = resp.level;
                             b.exp = resp.exp;
-                            b.max_level = resp.max_level;
                             b.reliance = resp.reliance;
                         }
                     }

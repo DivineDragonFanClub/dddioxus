@@ -4,6 +4,7 @@ use super::inspector::Inspector;
 use super::resizable_panel::ResizablePanel;
 use super::scene_tree::SceneTree;
 use crate::hooks::connection::ConnectionState;
+use crate::components::toast::use_toasts;
 use crate::protocol::{GetSceneNameRequest, GetSceneNameResponse, ToggleGameObjectRequest};
 use crate::rpc;
 
@@ -16,6 +17,7 @@ pub struct RevealRequest(pub Signal<u32>);
 #[component]
 pub fn SceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let toasts = use_toasts();
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetSceneNameResponse, String>>);
     let mut selected_path = use_signal(|| None::<String>);
@@ -42,9 +44,12 @@ pub fn SceneView() -> Element {
 
     let toggle_active = move |path: String| {
         spawn(async move {
-            if rpc::call(&conn, ToggleGameObjectRequest { path }).await.is_ok() {
-                let result = rpc::call(&conn, GetSceneNameRequest).await;
-                data.set(Some(result));
+            match rpc::call(&conn, ToggleGameObjectRequest { path }).await {
+                Ok(_) => {
+                    let result = rpc::call(&conn, GetSceneNameRequest).await;
+                    data.set(Some(result));
+                }
+                Err(e) => toasts.show(format!("Toggle failed: {e}")),
             }
         });
     };

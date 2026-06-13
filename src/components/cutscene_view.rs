@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::components::toast::use_toasts;
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     EditCommandRequest, GetCutsceneRequest, GetCutsceneResponse, GetSceneNameRequest, JumpCutsceneRequest,
@@ -91,6 +92,7 @@ fn localize_cmd(name: &str) -> &str {
 #[component]
 pub fn CutsceneView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let toasts = use_toasts();
     let mut loading = use_signal(|| false);
     let mut data = use_signal(|| None::<Result<GetCutsceneResponse, String>>);
     let mut cameras = use_signal(Vec::<String>::new);
@@ -124,13 +126,14 @@ pub fn CutsceneView() -> Element {
 
     let jump = move |(index, label): (i32, String)| {
         spawn(async move {
-            if rpc::call(&conn, JumpCutsceneRequest { index }).await.is_ok() {
-                data.with_mut(|slot| {
+            match rpc::call(&conn, JumpCutsceneRequest { index }).await {
+                Ok(_) => data.with_mut(|slot| {
                     if let Some(Ok(c)) = slot.as_mut() {
                         c.current_index = index;
                         c.current_label = label;
                     }
-                });
+                }),
+                Err(e) => toasts.show(format!("Jump failed: {e}")),
             }
         });
     };
@@ -248,6 +251,7 @@ pub struct CommandRowProps {
 #[component]
 fn CommandRow(props: CommandRowProps) -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
+    let toasts = use_toasts();
     let mut data = props.data;
     let mut editing = use_signal(|| false);
     let mut draft = use_signal(|| props.cmd.raw.clone());
@@ -265,10 +269,13 @@ fn CommandRow(props: CommandRowProps) -> Element {
             editing.set(false);
             let (label, side, text) = (label.clone(), side.clone(), draft());
             spawn(async move {
-                if rpc::call(&conn, EditCommandRequest { label, side, index, text }).await.is_ok() {
-                    if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
-                        data.set(Some(Ok(c)));
+                match rpc::call(&conn, EditCommandRequest { label, side, index, text }).await {
+                    Ok(_) => {
+                        if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
+                            data.set(Some(Ok(c)));
+                        }
                     }
+                    Err(e) => toasts.show(format!("Edit failed: {e}")),
                 }
             });
         }
@@ -280,10 +287,13 @@ fn CommandRow(props: CommandRowProps) -> Element {
         move |_| {
             let (label, side) = (label.clone(), side.clone());
             spawn(async move {
-                if rpc::call(&conn, RemoveCommandRequest { label, side, index }).await.is_ok() {
-                    if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
-                        data.set(Some(Ok(c)));
+                match rpc::call(&conn, RemoveCommandRequest { label, side, index }).await {
+                    Ok(_) => {
+                        if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
+                            data.set(Some(Ok(c)));
+                        }
                     }
+                    Err(e) => toasts.show(format!("Remove failed: {e}")),
                 }
             });
         }
@@ -303,13 +313,13 @@ fn CommandRow(props: CommandRowProps) -> Element {
                             editing.set(false);
                             let (label, side) = (save_label.clone(), save_side.clone());
                             spawn(async move {
-                                if rpc::call(&conn, EditCommandRequest { label, side, index, text })
-                                    .await
-                                    .is_ok()
-                                {
-                                    if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
-                                        data.set(Some(Ok(c)));
+                                match rpc::call(&conn, EditCommandRequest { label, side, index, text }).await {
+                                    Ok(_) => {
+                                        if let Ok(c) = rpc::call(&conn, GetCutsceneRequest).await {
+                                            data.set(Some(Ok(c)));
+                                        }
                                     }
+                                    Err(e) => toasts.show(format!("Edit failed: {e}")),
                                 }
                             });
                         },

@@ -81,22 +81,25 @@ pub fn MapView() -> Element {
 
     let on_class_change = move |req: SetClassRequest| {
         spawn(async move {
-            if rpc::call(&conn, req).await.is_ok() {
-                refresh.call(());
+            match rpc::call(&conn, req).await {
+                Ok(_) => refresh.call(()),
+                Err(e) => toasts.show(format!("Class change failed: {e}")),
             }
         });
     };
     let on_acted = move |req: SetActedRequest| {
         spawn(async move {
-            if rpc::call(&conn, req).await.is_ok() {
-                refresh.call(());
+            match rpc::call(&conn, req).await {
+                Ok(_) => refresh.call(()),
+                Err(e) => toasts.show(format!("Could not change acted: {e}")),
             }
         });
     };
     let move_to = move |(force_id, unit_index, x, z): (i32, i32, i32, i32)| {
         spawn(async move {
-            if rpc::call(&conn, SetUnitPosRequest { force_id, unit_index, x, z }).await.is_ok() {
-                refresh.call(());
+            match rpc::call(&conn, SetUnitPosRequest { force_id, unit_index, x, z }).await {
+                Ok(_) => refresh.call(()),
+                Err(e) => toasts.show(format!("Move failed: {e}")),
             }
         });
     };
@@ -134,9 +137,12 @@ pub fn MapView() -> Element {
 
     let on_move = move |req: MoveUnitRequest| {
         spawn(async move {
-            if rpc::call(&conn, req).await.is_ok() {
-                selected.set(None);
-                refresh.call(());
+            match rpc::call(&conn, req).await {
+                Ok(_) => {
+                    selected.set(None);
+                    refresh.call(());
+                }
+                Err(e) => toasts.show(format!("Move failed: {e}")),
             }
         });
     };

@@ -55,40 +55,6 @@ impl Default for ClientConfig {
     }
 }
 
-impl ClientConfig {
-    pub fn builder() -> ClientConfigBuilder {
-        ClientConfigBuilder(Self::default())
-    }
-}
-
-pub struct ClientConfigBuilder(ClientConfig);
-
-impl ClientConfigBuilder {
-    pub fn api_version(mut self, v: ApiVersion) -> Self {
-        self.0.api_version = v;
-        self
-    }
-    pub fn codec(mut self, c: CodecId) -> Self {
-        self.0.codec = c;
-        self
-    }
-    pub fn compression(mut self, c: CompressionId) -> Self {
-        self.0.compression = c;
-        self
-    }
-    pub fn encryption(mut self, e: EncryptionId) -> Self {
-        self.0.encryption = e;
-        self
-    }
-    pub fn beacon_port(mut self, port: u16) -> Self {
-        self.0.beacon_port = port;
-        self
-    }
-    pub fn build(self) -> ClientConfig {
-        self.0
-    }
-}
-
 #[derive(Clone)]
 pub struct ServerInfo {
     pub host: String,
