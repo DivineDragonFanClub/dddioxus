@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
@@ -16,11 +16,20 @@ use sora_protocol::handshake::{
     ApiVersion, CodecId, CompressionId, EncryptionId, Handshake, HandshakeAck, HandshakeStatus,
 };
 use tokio::net::TcpStream;
-use tokio::sync::{oneshot, Mutex as AsyncMutex};
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const BEACON_MAGIC: &[u8; 4] = b"OZN\x01";
+// A server that hasn't broadcast for this long is considered gone.
+const BEACON_STALE_AFTER: Duration = Duration::from_secs(5);
+const BEACON_RETRY_DELAY: Duration = Duration::from_secs(3);
+const BEACON_RECV_TIMEOUT: Duration = Duration::from_secs(1);
+// Ping the server periodically; if nothing at all arrives for the timeout
+// (a silent network drop sends no FIN/RST, so the socket read alone would
+// block forever), declare the connection dead.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
+const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(10);
 
 type WsSink = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 type WsStream = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -32,8 +41,6 @@ pub struct ClientConfig {
     pub compression: CompressionId,
     pub encryption: EncryptionId,
     pub beacon_port: u16,
-    pub beacon_timeout: Duration,
-    pub beacon_attempts: u32,
 }
 
 impl Default for ClientConfig {
@@ -44,8 +51,6 @@ impl Default for ClientConfig {
             compression: CompressionId::None,
             encryption: EncryptionId::None,
             beacon_port: 18051,
-            beacon_timeout: Duration::from_secs(3),
-            beacon_attempts: 5,
         }
     }
 }
@@ -79,14 +84,6 @@ impl ClientConfigBuilder {
         self.0.beacon_port = port;
         self
     }
-    pub fn beacon_timeout(mut self, timeout: Duration) -> Self {
-        self.0.beacon_timeout = timeout;
-        self
-    }
-    pub fn beacon_attempts(mut self, attempts: u32) -> Self {
-        self.0.beacon_attempts = attempts;
-        self
-    }
     pub fn build(self) -> ClientConfig {
         self.0
     }
@@ -103,7 +100,7 @@ type ReplyTx = oneshot::Sender<Result<Frame, String>>;
 
 pub struct Client {
     codec: Arc<JsonCodec>,
-    sink: AsyncMutex<WsSink>,
+    sink: Arc<AsyncMutex<WsSink>>,
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     next_call_id: AtomicU32,
     info: ServerInfo,
@@ -113,6 +110,12 @@ pub struct Client {
 impl Client {
     pub fn info(&self) -> &ServerInfo {
         &self.info
+    }
+
+    /// Close the WebSocket so the server doesn't keep a zombie session
+    /// around after a manual disconnect.
+    pub async fn close(&self) {
+        let _ = self.sink.lock().await.close().await;
     }
 
     pub async fn wait_disconnect(&self) -> String {
@@ -166,35 +169,92 @@ impl Client {
     }
 }
 
-pub async fn discover(config: &ClientConfig) -> Result<(String, u16), String> {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DiscoveredServer {
+    pub host: String,
+    pub port: u16,
+}
+
+/// Bind with SO_REUSEADDR/SO_REUSEPORT so several app instances (or an old
+/// listener thread that hasn't wound down yet) can all hear the beacons —
+/// broadcast datagrams are delivered to every reuse-bound socket.
+fn bind_beacon_socket(port: u16) -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_reuse_address(true)?;
+    #[cfg(unix)]
+    socket.set_reuse_port(true)?;
+    socket.bind(&std::net::SocketAddr::from(([0, 0, 0, 0], port)).into())?;
+    Ok(socket.into())
+}
+
+/// Listen for server beacons for as long as the returned receiver is alive.
+/// Each `Ok` update carries the full set of servers currently broadcasting;
+/// an `Err` reports a listener problem (e.g. the beacon port is taken), after
+/// which listening is retried automatically.
+pub fn watch_beacons(config: &ClientConfig) -> mpsc::UnboundedReceiver<Result<Vec<DiscoveredServer>, String>> {
     let beacon_port = config.beacon_port;
-    let timeout = config.beacon_timeout;
-    let attempts = config.beacon_attempts;
+    let (tx, rx) = mpsc::unbounded_channel();
 
     tokio::task::spawn_blocking(move || {
-        let socket = UdpSocket::bind(format!("0.0.0.0:{beacon_port}"))
-            .map_err(|e| format!("Failed to bind beacon port {beacon_port}: {e}"))?;
-        socket
-            .set_read_timeout(Some(timeout))
-            .map_err(|e| format!("Failed to set beacon timeout: {e}"))?;
+        'bind: while !tx.is_closed() {
+            let socket = match bind_beacon_socket(beacon_port) {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = tx.send(Err(format!("Failed to bind beacon port {beacon_port}: {e}")));
+                    std::thread::sleep(BEACON_RETRY_DELAY);
+                    continue 'bind;
+                }
+            };
+            if let Err(e) = socket.set_read_timeout(Some(BEACON_RECV_TIMEOUT)) {
+                let _ = tx.send(Err(format!("Failed to set beacon timeout: {e}")));
+                std::thread::sleep(BEACON_RETRY_DELAY);
+                continue 'bind;
+            }
 
-        let mut buf = [0u8; 64];
-        for _ in 0..attempts {
-            match socket.recv_from(&mut buf) {
-                Ok((len, src)) => {
-                    if len >= 6 && &buf[..4] == BEACON_MAGIC {
-                        let port = u16::from_le_bytes([buf[4], buf[5]]);
-                        log::info!("Beacon from {src}: server port = {port}");
-                        return Ok((src.ip().to_string(), port));
+            let mut seen: HashMap<DiscoveredServer, Instant> = HashMap::new();
+            // Force a snapshot on the first pass so a previously reported
+            // error is cleared once listening recovers.
+            let mut last_sent: Option<Vec<DiscoveredServer>> = None;
+            let mut buf = [0u8; 64];
+            while !tx.is_closed() {
+                match socket.recv_from(&mut buf) {
+                    Ok((len, src)) => {
+                        if len >= 6 && &buf[..4] == BEACON_MAGIC {
+                            let port = u16::from_le_bytes([buf[4], buf[5]]);
+                            let server = DiscoveredServer { host: src.ip().to_string(), port };
+                            if seen.insert(server, Instant::now()).is_none() {
+                                log::info!("Beacon from {src}: server port = {port}");
+                            }
+                        }
+                    }
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(e) => {
+                        let _ = tx.send(Err(format!("Beacon listener error: {e}")));
+                        std::thread::sleep(BEACON_RETRY_DELAY);
+                        continue 'bind;
                     }
                 }
-                Err(_) => continue,
+
+                seen.retain(|_, last| last.elapsed() < BEACON_STALE_AFTER);
+                let mut current: Vec<DiscoveredServer> = seen.keys().cloned().collect();
+                current.sort();
+                if last_sent.as_ref() != Some(&current) {
+                    if tx.send(Ok(current.clone())).is_err() {
+                        return;
+                    }
+                    last_sent = Some(current);
+                }
             }
+            return;
         }
-        Err(format!("No server found after {attempts} discovery attempts"))
-    })
-    .await
-    .unwrap_or_else(|e| Err(format!("Beacon task failed: {e}")))
+    });
+
+    rx
 }
 
 pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc<Client>, String> {
@@ -204,7 +264,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
         .map_err(|e| format!("WebSocket connect failed: {e}"))?;
 
     let (sink, mut stream) = ws.split();
-    let sink = AsyncMutex::new(sink);
+    let sink = Arc::new(AsyncMutex::new(sink));
 
     let hs = Handshake {
         client_api_version: config.api_version,
@@ -245,7 +305,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     let pending: Arc<Mutex<HashMap<u32, ReplyTx>>> = Arc::new(Mutex::new(HashMap::new()));
     let (disc_tx, disc_rx) = oneshot::channel::<String>();
 
-    spawn_reader(stream, codec.clone(), pending.clone(), disc_tx);
+    spawn_reader(stream, sink.clone(), codec.clone(), pending.clone(), disc_tx);
 
     Ok(Arc::new(Client {
         codec,
@@ -261,45 +321,58 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     }))
 }
 
-pub async fn discover_and_connect(config: &ClientConfig) -> Result<Arc<Client>, String> {
-    let (host, port) = discover(config).await?;
-    connect(&host, port, config).await
-}
-
 fn spawn_reader(
     mut stream: WsStream,
+    sink: Arc<AsyncMutex<WsSink>>,
     codec: Arc<JsonCodec>,
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     disconnect: oneshot::Sender<String>,
 ) {
     tokio::spawn(async move {
+        let mut last_rx = Instant::now();
+        let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let reason = loop {
-            match stream.next().await {
-                Some(Ok(Message::Binary(bytes))) => {
-                    let frame: Frame = match codec.decode(&bytes) {
-                        Ok(f) => f,
-                        Err(e) => {
-                            log::warn!("Failed to decode frame: {e}");
-                            continue;
+            tokio::select! {
+                msg = stream.next() => match msg {
+                    Some(Ok(Message::Binary(bytes))) => {
+                        last_rx = Instant::now();
+                        let frame: Frame = match codec.decode(&bytes) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                log::warn!("Failed to decode frame: {e}");
+                                continue;
+                            }
+                        };
+                        let call_id = match &frame {
+                            Frame::Response { call_id, .. } => *call_id,
+                            Frame::Error { call_id, .. } => *call_id,
+                            _ => continue,
+                        };
+                        if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
+                            let _ = tx.send(Ok(frame));
                         }
-                    };
-                    let call_id = match &frame {
-                        Frame::Response { call_id, .. } => *call_id,
-                        Frame::Error { call_id, .. } => *call_id,
-                        _ => continue,
-                    };
-                    if let Some(tx) = pending.lock().unwrap().remove(&call_id) {
-                        let _ = tx.send(Ok(frame));
                     }
-                }
-                Some(Ok(Message::Close(_))) => break "The server closed the connection.".to_string(),
-                Some(Ok(_)) => continue,
-                Some(Err(e)) => {
-                    break format!("Connection error: {e}. The server (the game) likely crashed.")
-                }
-                None => {
-                    break "Connection dropped with no clean close — the server (the game) likely crashed."
-                        .to_string()
+                    Some(Ok(Message::Close(_))) => break "The server closed the connection.".to_string(),
+                    Some(Ok(_)) => last_rx = Instant::now(),
+                    Some(Err(e)) => {
+                        break format!("Connection error: {e}. The server (the game) likely crashed.")
+                    }
+                    None => {
+                        break "Connection dropped with no clean close — the server (the game) likely crashed."
+                            .to_string()
+                    }
+                },
+                _ = heartbeat.tick() => {
+                    if last_rx.elapsed() > HEARTBEAT_TIMEOUT {
+                        break format!(
+                            "No response from the server for {}s — the network or the game went away.",
+                            HEARTBEAT_TIMEOUT.as_secs()
+                        );
+                    }
+                    if sink.lock().await.send(Message::Ping(Vec::new())).await.is_err() {
+                        break "Connection lost (failed to send heartbeat).".to_string();
+                    }
                 }
             }
         };

@@ -25,7 +25,8 @@ sora-protocol = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }
 sora-codecs = { git = "https://github.com/DivineDragonFanClub/sora-protocol" }
 
 # Async
-tokio = { version = "1", features = ["sync", "rt", "net"] }
+tokio = { version = "1", features = ["sync", "rt", "net", "time", "macros"] }
+socket2 = "0.6"
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
 
