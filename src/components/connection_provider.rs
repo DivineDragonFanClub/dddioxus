@@ -59,7 +59,7 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
             let cfg = reconnect_config.clone();
             spawn(async move {
                 let reason = client.wait_disconnect().await;
-                // Only react if this client is still the active one — a
+                // Only react if this client is still the active one. A
                 // session we already left shouldn't disturb a newer
                 // connection.
                 let is_current = conn.peek().client().is_some_and(|c| Arc::ptr_eq(c, &client));
