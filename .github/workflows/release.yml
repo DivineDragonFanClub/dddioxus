@@ -27,6 +27,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # bake the release tag into the binary's version so the in-app update check compares against
+      # the right baseline (CARGO_PKG_VERSION comes from Cargo.toml at compile time)
+      - name: Stamp version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ inputs.tag }}" -replace '^v',''
+          (Get-Content Cargo.toml) -replace '^version = ".*"', "version = ""$ver""" | Set-Content Cargo.toml
+          Write-Host "Building version $ver"
+          Select-String -Path Cargo.toml -Pattern '^version' | Select-Object -First 1
+
       # `dx build` (not `bundle`) produces the runnable app — the exe plus its
       # assets — without wrapping it in an installer. We zip that folder so it
       # ships as a portable download: unzip and run the exe, no install needed.
@@ -78,6 +88,15 @@ jobs:
           cargo binstall -y --force --targets aarch64-apple-darwin dioxus-cli@0.7.5
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           "$HOME/.cargo/bin/dx" --version
+
+      # bake the release tag into the binary's version so the in-app update check compares against
+      # the right baseline (CARGO_PKG_VERSION comes from Cargo.toml at compile time)
+      - name: Stamp version from tag
+        run: |
+          ver="${{ inputs.tag }}"; ver="${ver#v}"
+          sed -i '' -E "s/^version = \".*\"/version = \"$ver\"/" Cargo.toml
+          echo "Building version $ver"
+          grep -m1 '^version' Cargo.toml
 
       # A .app bundle is already a portable, double-click-to-run app (no
       # installer). We build one per arch, then lipo them into a single

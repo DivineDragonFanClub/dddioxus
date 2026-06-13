@@ -22,6 +22,7 @@ use components::procs_view::ProcsView;
 use components::scene_view::SceneView;
 use components::shell::Shell;
 use components::ui::Page;
+use components::update_banner::UpdateBanner;
 use hooks::connection::use_connection;
 
 #[cfg(any(debug_assertions, feature = "dev"))]
@@ -145,6 +146,7 @@ fn App() -> Element {
         document::Stylesheet { href: TAILWIND }
         document::Style { "html, body {{ margin: 0; height: 100%; overflow: hidden; background: #111827; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif; }} input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button {{ -webkit-appearance: none; margin: 0; }} input[type=number] {{ -moz-appearance: textfield; appearance: textfield; }}" }
         div { class: "flex flex-col h-screen text-white",
+            UpdateBanner {}
             ConnectionProvider {
                 CatalogProvider {
                     ToastProvider {
