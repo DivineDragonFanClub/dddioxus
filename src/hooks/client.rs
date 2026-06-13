@@ -142,8 +142,8 @@ pub struct DiscoveredServer {
 }
 
 /// Bind with SO_REUSEADDR/SO_REUSEPORT so several app instances (or an old
-/// listener thread that hasn't wound down yet) can all hear the beacons —
-/// broadcast datagrams are delivered to every reuse-bound socket.
+/// listener thread that hasn't wound down yet) can all hear the beacons.
+/// Broadcast datagrams are delivered to every reuse-bound socket.
 fn bind_beacon_socket(port: u16) -> std::io::Result<UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
@@ -325,14 +325,14 @@ fn spawn_reader(
                         break format!("Connection error: {e}. The server (the game) likely crashed.")
                     }
                     None => {
-                        break "Connection dropped with no clean close — the server (the game) likely crashed."
+                        break "Connection dropped with no clean close. The server (the game) likely crashed."
                             .to_string()
                     }
                 },
                 _ = heartbeat.tick() => {
                     if last_rx.elapsed() > HEARTBEAT_TIMEOUT {
                         break format!(
-                            "No response from the server for {}s — the network or the game went away.",
+                            "No response from the server for {}s. The network or the game went away.",
                             HEARTBEAT_TIMEOUT.as_secs()
                         );
                     }
