@@ -27,23 +27,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bundle
-        run: dx bundle --release --platform desktop --package-types nsis --package-types msi --out-dir out
+      # `dx build` (not `bundle`) produces the runnable app — the exe plus its
+      # assets — without wrapping it in an installer. We zip that folder so it
+      # ships as a portable download: unzip and run the exe, no install needed.
+      - name: Build portable app
+        run: dx build --release --platform desktop
 
-      - name: List bundle output
+      - name: Show build output
         if: always()
-        run: dir out
-        shell: cmd
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path target/dx -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'desktop' } |
+            ForEach-Object { Write-Host "== $($_.FullName)"; Get-ChildItem $_.FullName }
+
+      - name: Zip portable app
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path target -Recurse -Filter *.exe -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match '\\dx\\' -and $_.FullName -match '\\release\\' -and $_.Name -ne 'dx.exe' } |
+                 Select-Object -First 1
+          if (-not $exe) { throw "portable exe not found under target/dx" }
+          $appdir = $exe.Directory.FullName
+          Write-Host "Packaging $appdir"
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Compress-Archive -Path (Join-Path $appdir '*') -DestinationPath "out/dddioxus-windows-portable.zip" -Force
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
           prerelease: ${{ inputs.prerelease }}
-          files: |
-            out/*.exe
-            out/*.msi
-          fail_on_unmatched_files: false
+          files: out/*.zip
+          fail_on_unmatched_files: true
 
   macos:
     runs-on: macos-latest
@@ -63,6 +79,9 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           "$HOME/.cargo/bin/dx" --version
 
+      # A .app bundle is already a portable, double-click-to-run app (no
+      # installer). We build one per arch, then lipo them into a single
+      # universal .app.
       - name: Bundle both arches
         run: |
           export PATH="$HOME/.cargo/bin:$PATH"
@@ -71,7 +90,7 @@ jobs:
           dx bundle --release --platform desktop --package-types macos \
             --target x86_64-apple-darwin --out-dir out-x64
 
-      - name: Merge into a universal .app and pack a .dmg
+      - name: Merge into a universal .app and zip it
         run: |
           set -euo pipefail
           app_name=$(basename "$(ls -d out-arm/*.app | head -1)")
@@ -82,18 +101,15 @@ jobs:
             -output "out-arm/$app_name/Contents/MacOS/$bin"
           lipo -info "out-arm/$app_name/Contents/MacOS/$bin"
 
-          mkdir -p dmgroot
-          cp -R "out-arm/$app_name" dmgroot/
-          ln -s /Applications dmgroot/Applications
           mkdir -p out
-          dmg_name="${app_name%.app}-universal.dmg"
-          hdiutil create -volname "${app_name%.app}" -srcfolder dmgroot \
-            -ov -format UDZO "out/$dmg_name"
+          # ditto is the macOS-correct way to zip a .app (keeps symlinks and
+          # bundle structure intact)
+          ( cd out-arm && ditto -c -k --sequesterRsrc --keepParent "$app_name" "../out/${app_name%.app}-macos-universal.zip" )
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
           prerelease: ${{ inputs.prerelease }}
-          files: out/*.dmg
+          files: out/*.zip
           fail_on_unmatched_files: true
