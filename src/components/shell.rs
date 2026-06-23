@@ -85,11 +85,13 @@ fn AppBar() -> Element {
                     button {
                         class: "text-red-400 hover:text-red-300 text-xs cursor-pointer transition-colors",
                         onclick: move |_| {
-                            let old = conn.peek().client().cloned();
-                            conn.set(ConnectionState::Disconnected { reason: None });
-                            if let Some(client) = old {
-                                spawn(async move { client.close().await });
+                            // Tear down synchronously: setting Disconnected unmounts this
+                            // component, which would cancel a spawned close() before it runs
+                            // and leave the connection (and the server) wedged.
+                            if let Some(client) = conn.peek().client().cloned() {
+                                client.shutdown();
                             }
+                            conn.set(ConnectionState::Disconnected { reason: None });
                         },
                         "Disconnect"
                     }

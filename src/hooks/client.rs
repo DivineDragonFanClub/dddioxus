@@ -73,6 +73,18 @@ pub struct Client {
     next_call_id: AtomicU32,
     info: ServerInfo,
     disconnect: AsyncMutex<Option<oneshot::Receiver<String>>>,
+    // the background read/heartbeat task, kept so we can stop it on teardown
+    reader: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // Kill the reader task even if close() wasn't called. Otherwise it keeps
+        // the socket open and keeps pinging, and the single-session server stays
+        // busy so a reconnect can't get in until the whole app is closed.
+        self.reader.abort();
+        self.fail_pending();
+    }
 }
 
 impl Client {
@@ -83,7 +95,32 @@ impl Client {
     /// Close the WebSocket so the server doesn't keep a zombie session
     /// around after a manual disconnect.
     pub async fn close(&self) {
+        // stop the reader/heartbeat task first so it can't keep the socket alive
+        self.reader.abort();
+        // ...but aborting skips the reader's own cleanup, so fail in-flight calls
+        // here. Otherwise a call still awaiting its reply pins this Client (and its
+        // socket) forever, and the server never sees us disconnect.
+        self.fail_pending();
         let _ = self.sink.lock().await.close().await;
+    }
+
+    /// Synchronous teardown, safe to call from a UI handler that's about to
+    /// unmount its component. Aborting the reader + failing pending calls drops
+    /// the last refs to the socket, so it closes without relying on a spawned
+    /// task surviving (a dioxus `spawn` gets cancelled when its scope unmounts,
+    /// which previously left the connection alive and wedged the server).
+    pub fn shutdown(&self) {
+        self.reader.abort();
+        self.fail_pending();
+    }
+
+    // Resolve every in-flight call with an error so nothing keeps awaiting a reply
+    // that will never come.
+    fn fail_pending(&self) {
+        let mut map = self.pending.lock().unwrap();
+        for (_id, tx) in map.drain() {
+            let _ = tx.send(Err("Connection closed.".into()));
+        }
     }
 
     pub async fn wait_disconnect(&self) -> String {
@@ -310,7 +347,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
     let pending: Arc<Mutex<HashMap<u32, ReplyTx>>> = Arc::new(Mutex::new(HashMap::new()));
     let (disc_tx, disc_rx) = oneshot::channel::<String>();
 
-    spawn_reader(stream, sink.clone(), codec.clone(), pending.clone(), disc_tx);
+    let reader = spawn_reader(stream, sink.clone(), codec.clone(), pending.clone(), disc_tx);
 
     Ok(Arc::new(Client {
         codec,
@@ -323,6 +360,7 @@ pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc
             api_version: ack.server_api_version,
         },
         disconnect: AsyncMutex::new(Some(disc_rx)),
+        reader,
     }))
 }
 
@@ -332,7 +370,7 @@ fn spawn_reader(
     codec: Arc<JsonCodec>,
     pending: Arc<Mutex<HashMap<u32, ReplyTx>>>,
     disconnect: oneshot::Sender<String>,
-) {
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut last_rx = Instant::now();
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -389,5 +427,5 @@ fn spawn_reader(
             }
         }
         let _ = disconnect.send(reason);
-    });
+    })
 }

@@ -17,6 +17,16 @@ enum ReconnectStatus {
     Waiting(u64),
 }
 
+// Which target the user is connecting to. They pick this first because the two
+// need different connection methods: an emulator is found by broadcast
+// discovery, but a console over Wi-Fi usually has its broadcast dropped, so it's
+// reached by typing its IP.
+#[derive(Clone, Copy, PartialEq)]
+enum ConnectionMode {
+    Emulator,
+    Console,
+}
+
 #[derive(PartialEq, Clone, Props)]
 pub struct ConnectionProviderProps {
     #[props(default)]
@@ -33,6 +43,8 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     // prefill the connect-by-IP box with the last host we connected to
     let mut manual_host: Signal<String> = use_signal(|| crate::hooks::settings::last_host().unwrap_or_default());
     let mut probing: Signal<bool> = use_signal(|| false);
+    // None until the user picks emulator vs console on the first screen
+    let mut mode: Signal<Option<ConnectionMode>> = use_signal(|| None);
     let mut conn = use_context::<Signal<ConnectionState>>();
     let config = props.config.clone();
 
@@ -62,10 +74,10 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
             let cfg = reconnect_config.clone();
             spawn(async move {
                 let reason = client.wait_disconnect().await;
+                let is_current = conn.peek().client().is_some_and(|c| Arc::ptr_eq(c, &client));
                 // Only react if this client is still the active one — a
                 // session we already left shouldn't disturb a newer
                 // connection.
-                let is_current = conn.peek().client().is_some_and(|c| Arc::ptr_eq(c, &client));
                 if !is_current {
                     return;
                 }
@@ -237,8 +249,8 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
         }
     } else {
         let is_connecting = connecting_to().is_some();
-        // The static Tailwind v2 stylesheet has no `disabled:` variants, so
-        // branch the row styling on state instead.
+        // The static stylesheet has no `disabled:` variants, so branch the row
+        // styling on state instead.
         let row_class = if is_connecting {
             "flex items-center justify-between w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded text-left opacity-50"
         } else {
@@ -252,71 +264,113 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                         p { class: "text-red-200 text-xs mt-1", "{reason}" }
                     }
                 }
-                if listen_error().is_none() {
-                    div { class: "flex items-center gap-2.5",
-                        span { class: "relative flex h-2.5 w-2.5",
-                            span { class: "animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" }
-                            span { class: "relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" }
-                        }
-                        p { class: "text-gray-400 text-sm",
-                            if servers().is_empty() {
-                                "Searching for debug servers on your local network..."
-                            } else {
-                                "Click on your server to connect"
+                {match mode() {
+                    // First screen: pick what you're connecting to.
+                    None => rsx! {
+                        p { class: "text-gray-300 text-base", "What are you connecting to?" }
+                        div { class: "flex gap-4",
+                            button {
+                                class: "flex flex-col items-center gap-1 w-44 px-4 py-5 bg-gray-800 border border-gray-700 hover:border-indigo-500 rounded-lg",
+                                onclick: move |_| {
+                                    connect_error.set(None);
+                                    mode.set(Some(ConnectionMode::Emulator));
+                                },
+                                span { class: "text-white text-sm font-semibold", "Emulator" }
+                                span { class: "text-gray-500 text-xs text-center", "Find it automatically on the network" }
+                            }
+                            button {
+                                class: "flex flex-col items-center gap-1 w-44 px-4 py-5 bg-gray-800 border border-gray-700 hover:border-indigo-500 rounded-lg",
+                                onclick: move |_| {
+                                    connect_error.set(None);
+                                    mode.set(Some(ConnectionMode::Console));
+                                },
+                                span { class: "text-white text-sm font-semibold", "Console" }
+                                span { class: "text-gray-500 text-xs text-center", "Connect by IP over Wi-Fi" }
                             }
                         }
-                    }
-                }
-                div { class: "flex flex-col gap-2 w-full max-w-md p-4 border border-gray-700 rounded-lg",
-                    if servers().is_empty() {
-                        p { class: "text-gray-600 text-sm text-center py-3",
-                            "Launch the game and the server will show up here."
-                        }
-                    }
-                    for server in servers() {
+                    },
+                    // Emulator: broadcast discovery list + searching animation.
+                    Some(ConnectionMode::Emulator) => rsx! {
                         button {
-                            key: "{server.host}:{server.port}",
-                            class: row_class,
-                            disabled: is_connecting,
-                            onclick: {
-                                let server = server.clone();
-                                move |_| connect_to.call(server.clone())
-                            },
-                            span { class: "font-mono text-sm text-white", "{server.host}:{server.port}" }
-                            span { class: "text-xs text-indigo-400", "Connect" }
+                            class: "text-gray-400 hover:text-gray-200 text-xs self-start",
+                            onclick: move |_| mode.set(None),
+                            "← Choose target"
                         }
-                    }
-                }
-                // Direct connect by IP, for networks that block broadcast
-                // discovery (Wi-Fi client isolation).
-                div { class: "flex flex-col gap-2 w-full max-w-md",
-                    p { class: "text-gray-500 text-xs text-center",
-                        "Not showing up? Enter the console's IP directly:"
-                    }
-                    div { class: "flex gap-2",
-                        input {
-                            class: "flex-1 px-3 py-2 bg-gray-800 border border-gray-700 focus:border-indigo-500 outline-none rounded text-sm text-white font-mono",
-                            r#type: "text",
-                            placeholder: "192.168.1.50",
-                            value: "{manual_host}",
-                            disabled: is_connecting || probing(),
-                            oninput: move |e| manual_host.set(e.value()),
-                            onkeydown: move |e| {
-                                if e.key() == Key::Enter {
-                                    connect_ip.call(());
+                        if listen_error().is_none() {
+                            div { class: "flex items-center gap-2.5",
+                                span { class: "relative flex h-2.5 w-2.5",
+                                    span { class: "animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" }
+                                    span { class: "relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500" }
                                 }
-                            },
+                                p { class: "text-gray-400 text-sm",
+                                    if servers().is_empty() {
+                                        "Searching for debug servers on your local network..."
+                                    } else {
+                                        "Click on your server to connect"
+                                    }
+                                }
+                            }
                         }
+                        div { class: "flex flex-col gap-2 w-full max-w-md p-4 border border-gray-700 rounded-lg",
+                            if servers().is_empty() {
+                                p { class: "text-gray-600 text-sm text-center py-3",
+                                    "Launch the game and the server will show up here."
+                                }
+                            }
+                            for server in servers() {
+                                button {
+                                    key: "{server.host}:{server.port}",
+                                    class: row_class,
+                                    disabled: is_connecting,
+                                    onclick: {
+                                        let server = server.clone();
+                                        move |_| connect_to.call(server.clone())
+                                    },
+                                    span { class: "font-mono text-sm text-white", "{server.host}:{server.port}" }
+                                    span { class: "text-xs text-indigo-400", "Connect" }
+                                }
+                            }
+                        }
+                    },
+                    // Console: direct connect by IP, broadcast is dropped on Wi-Fi.
+                    Some(ConnectionMode::Console) => rsx! {
                         button {
-                            class: "px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm text-white whitespace-nowrap",
-                            disabled: is_connecting || probing(),
-                            onclick: move |_| connect_ip.call(()),
-                            if probing() { "Probing..." } else { "Connect" }
+                            class: "text-gray-400 hover:text-gray-200 text-xs self-start",
+                            onclick: move |_| mode.set(None),
+                            "← Choose target"
                         }
-                    }
-                }
-                // Rendered outside the list so it survives the row being
-                // pruned mid-attempt.
+                        div { class: "flex flex-col gap-2 w-full max-w-md",
+                            p { class: "text-gray-400 text-sm text-center",
+                                "Enter the console's IP address:"
+                            }
+                            div { class: "flex gap-2",
+                                input {
+                                    class: "flex-1 px-3 py-2 bg-gray-800 border border-gray-700 focus:border-indigo-500 outline-none rounded text-sm text-white font-mono",
+                                    r#type: "text",
+                                    placeholder: "192.168.1.50",
+                                    value: "{manual_host}",
+                                    disabled: is_connecting || probing(),
+                                    oninput: move |e| manual_host.set(e.value()),
+                                    onkeydown: move |e| {
+                                        if e.key() == Key::Enter {
+                                            connect_ip.call(());
+                                        }
+                                    },
+                                }
+                                button {
+                                    class: "px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm text-white whitespace-nowrap",
+                                    disabled: is_connecting || probing(),
+                                    onclick: move |_| connect_ip.call(()),
+                                    if probing() { "Probing..." } else { "Connect" }
+                                }
+                            }
+                            p { class: "text-gray-600 text-xs text-center",
+                                "Find it on the console: System Settings → Internet → Connection Status."
+                            }
+                        }
+                    },
+                }}
+                // connecting / errors, shown whichever method is active
                 if let Some(target) = connecting_to() {
                     p { class: "text-indigo-400 text-sm",
                         "Connecting to {target.host}:{target.port}..."
