@@ -30,7 +30,8 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     let mut connecting_to: Signal<Option<DiscoveredServer>> = use_signal(|| None);
     let mut connect_error: Signal<Option<String>> = use_signal(|| None);
     let mut listen_error: Signal<Option<String>> = use_signal(|| None);
-    let mut manual_host: Signal<String> = use_signal(String::new);
+    // prefill the connect-by-IP box with the last host we connected to
+    let mut manual_host: Signal<String> = use_signal(|| crate::hooks::settings::last_host().unwrap_or_default());
     let mut probing: Signal<bool> = use_signal(|| false);
     let mut conn = use_context::<Signal<ConnectionState>>();
     let config = props.config.clone();
@@ -137,6 +138,8 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
             match tokio::time::timeout(CONNECT_TIMEOUT, connect(&server.host, server.port, &cfg)).await {
                 Ok(Ok(client)) => {
                     let info = client.info().clone();
+                    // remember it so the connect-by-IP box prefills next run
+                    crate::hooks::settings::set_last_host(&info.host);
                     conn.set(ConnectionState::Connected { client, info });
                 }
                 Ok(Err(err)) => connect_error.set(Some(err)),
