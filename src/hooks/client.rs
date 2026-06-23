@@ -364,14 +364,14 @@ fn spawn_reader(
                         break format!("Connection error: {e}. The server (the game) likely crashed.")
                     }
                     None => {
-                        break "Connection dropped with no clean close — the server (the game) likely crashed."
+                        break "Connection dropped with no clean close - the server (the game) likely crashed."
                             .to_string()
                     }
                 },
                 _ = heartbeat.tick() => {
                     if last_rx.elapsed() > HEARTBEAT_TIMEOUT {
                         break format!(
-                            "No response from the server for {}s — the network or the game went away.",
+                            "No response from the server for {}s - the network or the game went away.",
                             HEARTBEAT_TIMEOUT.as_secs()
                         );
                     }
