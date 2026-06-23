@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use dioxus::prelude::*;
 
-use crate::hooks::connection::{connect, watch_beacons, ClientConfig, ConnectionState, DiscoveredServer};
+use crate::hooks::connection::{connect, query_server_port, watch_beacons, ClientConfig, ConnectionState, DiscoveredServer};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 // Reconnect attempts fail fast so the countdown (and its Retry button)
@@ -30,6 +30,8 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     let mut connecting_to: Signal<Option<DiscoveredServer>> = use_signal(|| None);
     let mut connect_error: Signal<Option<String>> = use_signal(|| None);
     let mut listen_error: Signal<Option<String>> = use_signal(|| None);
+    let mut manual_host: Signal<String> = use_signal(String::new);
+    let mut probing: Signal<bool> = use_signal(|| false);
     let mut conn = use_context::<Signal<ConnectionState>>();
     let config = props.config.clone();
 
@@ -147,6 +149,36 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
         });
     });
 
+    // Connect by typing an IP, for networks where broadcast discovery is
+    // blocked. We unicast-probe the host for its current (random) TCP port,
+    // then hand the result to the normal connect path.
+    let probe_config = props.config.clone();
+    let connect_ip = use_callback(move |_: ()| {
+        if connecting_to().is_some() || probing() {
+            return;
+        }
+        let host = manual_host.peek().trim().to_string();
+        if host.is_empty() {
+            return;
+        }
+        connect_error.set(None);
+        probing.set(true);
+        let beacon_port = probe_config.beacon_port;
+        spawn(async move {
+            let probe_host = host.clone();
+            let probe = tokio::task::spawn_blocking(move || {
+                query_server_port(&probe_host, beacon_port, Duration::from_secs(2))
+            })
+            .await;
+            probing.set(false);
+            match probe {
+                Ok(Ok(port)) => connect_to.call(DiscoveredServer { host, port }),
+                Ok(Err(e)) => connect_error.set(Some(e)),
+                Err(_) => connect_error.set(Some("Probe task failed".into())),
+            }
+        });
+    });
+
     // Connected and Reconnecting both keep the workspace mounted so panel
     // state survives a transient drop; only the header bar changes.
     let workspace = match &*conn.read() {
@@ -249,6 +281,34 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
                             },
                             span { class: "font-mono text-sm text-white", "{server.host}:{server.port}" }
                             span { class: "text-xs text-indigo-400", "Connect" }
+                        }
+                    }
+                }
+                // Direct connect by IP, for networks that block broadcast
+                // discovery (Wi-Fi client isolation).
+                div { class: "flex flex-col gap-2 w-full max-w-md",
+                    p { class: "text-gray-500 text-xs text-center",
+                        "Not showing up? Enter the console's IP directly:"
+                    }
+                    div { class: "flex gap-2",
+                        input {
+                            class: "flex-1 px-3 py-2 bg-gray-800 border border-gray-700 focus:border-indigo-500 outline-none rounded text-sm text-white font-mono",
+                            r#type: "text",
+                            placeholder: "192.168.1.50",
+                            value: "{manual_host}",
+                            disabled: is_connecting || probing(),
+                            oninput: move |e| manual_host.set(e.value()),
+                            onkeydown: move |e| {
+                                if e.key() == Key::Enter {
+                                    connect_ip.call(());
+                                }
+                            },
+                        }
+                        button {
+                            class: "px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-sm text-white whitespace-nowrap",
+                            disabled: is_connecting || probing(),
+                            onclick: move |_| connect_ip.call(()),
+                            if probing() { "Probing..." } else { "Connect" }
                         }
                     }
                 }

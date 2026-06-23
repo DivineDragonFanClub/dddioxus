@@ -21,6 +21,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const BEACON_MAGIC: &[u8; 4] = b"OZN\x01";
+// sent to a server directly when broadcast discovery can't reach it
+const QUERY_MAGIC: &[u8; 4] = b"OZN?";
 // A server that hasn't broadcast for this long is considered gone.
 const BEACON_STALE_AFTER: Duration = Duration::from_secs(5);
 const BEACON_RETRY_DELAY: Duration = Duration::from_secs(3);
@@ -223,11 +225,48 @@ pub fn watch_beacons(config: &ClientConfig) -> mpsc::UnboundedReceiver<Result<Ve
     rx
 }
 
+/// Ask one host directly for its current TCP port. Broadcast discovery dies on
+/// Wi-Fi with client isolation, but a unicast query/reply still gets through, so
+/// this backs the "connect by IP" path. Sends QUERY_MAGIC to host:beacon_port and
+/// waits for the same magic+port reply the beacon uses. Blocking, run it off the
+/// async runtime (spawn_blocking).
+pub fn query_server_port(host: &str, beacon_port: u16, timeout: Duration) -> Result<u16, String> {
+    let socket = UdpSocket::bind(("0.0.0.0", 0)).map_err(|e| format!("bind failed: {e}"))?;
+    // short per-recv timeout so we can resend, UDP over Wi-Fi can drop a packet
+    socket
+        .set_read_timeout(Some(Duration::from_millis(400)))
+        .map_err(|e| format!("set timeout failed: {e}"))?;
+
+    let deadline = Instant::now() + timeout;
+    let mut buf = [0u8; 64];
+    while Instant::now() < deadline {
+        socket
+            .send_to(QUERY_MAGIC, (host, beacon_port))
+            .map_err(|e| format!("send failed: {e}"))?;
+        match socket.recv_from(&mut buf) {
+            Ok((len, src)) => {
+                // ignore stray packets, only take a real reply from the host we asked
+                if len >= 6 && &buf[..4] == BEACON_MAGIC && src.ip().to_string() == host {
+                    return Ok(u16::from_le_bytes([buf[4], buf[5]]));
+                }
+            }
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+            Err(e) => return Err(format!("recv failed: {e}")),
+        }
+    }
+    Err("No response (is the game running and the IP correct?)".into())
+}
+
 pub async fn connect(host: &str, port: u16, config: &ClientConfig) -> Result<Arc<Client>, String> {
     let url = format!("ws://{host}:{port}");
     let (ws, _) = tokio_tungstenite::connect_async(&url)
         .await
         .map_err(|e| format!("WebSocket connect failed: {e}"))?;
+
+    // turn off Nagle so small request/reply frames don't sit waiting on an ack
+    if let MaybeTlsStream::Plain(tcp) = ws.get_ref() {
+        let _ = tcp.set_nodelay(true);
+    }
 
     let (sink, mut stream) = ws.split();
     let sink = Arc::new(AsyncMutex::new(sink));
