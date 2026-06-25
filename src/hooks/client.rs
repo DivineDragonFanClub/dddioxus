@@ -21,8 +21,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const BEACON_MAGIC: &[u8; 4] = b"OZN\x01";
-// sent to a server directly when broadcast discovery can't reach it
+// sent to a server directly when broadcast discovery can't reach it. Its own port
+// (not the beacon's) so the server's responder never collides with our beacon
+// listener when the emulator and this app run on the same machine.
 const QUERY_MAGIC: &[u8; 4] = b"OZN?";
+const QUERY_PORT: u16 = 18052;
 // A server that hasn't broadcast for this long is considered gone.
 const BEACON_STALE_AFTER: Duration = Duration::from_secs(5);
 const BEACON_RETRY_DELAY: Duration = Duration::from_secs(3);
@@ -264,10 +267,10 @@ pub fn watch_beacons(config: &ClientConfig) -> mpsc::UnboundedReceiver<Result<Ve
 
 /// Ask one host directly for its current TCP port. Broadcast discovery dies on
 /// Wi-Fi with client isolation, but a unicast query/reply still gets through, so
-/// this backs the "connect by IP" path. Sends QUERY_MAGIC to host:beacon_port and
+/// this backs the "connect by IP" path. Sends QUERY_MAGIC to host:QUERY_PORT and
 /// waits for the same magic+port reply the beacon uses. Blocking, run it off the
 /// async runtime (spawn_blocking).
-pub fn query_server_port(host: &str, beacon_port: u16, timeout: Duration) -> Result<u16, String> {
+pub fn query_server_port(host: &str, timeout: Duration) -> Result<u16, String> {
     let socket = UdpSocket::bind(("0.0.0.0", 0)).map_err(|e| format!("bind failed: {e}"))?;
     // short per-recv timeout so we can resend, UDP over Wi-Fi can drop a packet
     socket
@@ -278,7 +281,7 @@ pub fn query_server_port(host: &str, beacon_port: u16, timeout: Duration) -> Res
     let mut buf = [0u8; 64];
     while Instant::now() < deadline {
         socket
-            .send_to(QUERY_MAGIC, (host, beacon_port))
+            .send_to(QUERY_MAGIC, (host, QUERY_PORT))
             .map_err(|e| format!("send failed: {e}"))?;
         match socket.recv_from(&mut buf) {
             Ok((len, src)) => {

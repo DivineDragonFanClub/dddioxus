@@ -167,7 +167,6 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
     // Connect by typing an IP, for networks where broadcast discovery is
     // blocked. We unicast-probe the host for its current (random) TCP port,
     // then hand the result to the normal connect path.
-    let probe_config = props.config.clone();
     let connect_ip = use_callback(move |_: ()| {
         if connecting_to().is_some() || probing() {
             return;
@@ -178,11 +177,10 @@ pub fn ConnectionProvider(props: ConnectionProviderProps) -> Element {
         }
         connect_error.set(None);
         probing.set(true);
-        let beacon_port = probe_config.beacon_port;
         spawn(async move {
             let probe_host = host.clone();
             let probe = tokio::task::spawn_blocking(move || {
-                query_server_port(&probe_host, beacon_port, Duration::from_secs(2))
+                query_server_port(&probe_host, Duration::from_secs(2))
             })
             .await;
             probing.set(false);
