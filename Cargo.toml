@@ -1,6 +1,6 @@
 [package]
 name = "dddioxus"
-version = "0.1.0"
+version = "0.1.7"
 authors = ["Raytwo <raytwost@gmail.com>"]
 edition = "2021"
 
