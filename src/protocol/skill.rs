@@ -10,6 +10,8 @@ pub struct SkillInfo {
     pub name: String,
     pub source: String,
     pub removable: bool,
+    // icon sprite name (IconLabel), served at /sprite/skill/{icon}.png. may be empty
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

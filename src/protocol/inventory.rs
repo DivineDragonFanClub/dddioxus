@@ -12,6 +12,8 @@ pub struct UnitItemInfo {
     pub kind: i32,
     pub endurance: i32,
     pub equipped: bool,
+    // icon sprite name, served at /sprite/item/{icon}.png
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

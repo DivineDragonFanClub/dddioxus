@@ -33,6 +33,15 @@ pub struct UnitSummary {
     pub total_level: i32,
     pub class_jid: String,
     pub acted: bool,
+    // current tile position on the map grid (x = column, z = row)
+    pub x: i32,
+    pub z: i32,
+    // face thumbnail sprite name, served at /sprite/face/{face}.png
+    pub face: String,
+    // chibi sprite name "{person}_{job}", served at /sprite/unit/{icon}.png
+    pub icon: String,
+    // base64 PNG when a mod overrides this unit's icon; preferred over the baked `icon`
+    pub icon_png: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -39,6 +39,12 @@ serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.115"
 dirs = "5"
 
+# Game sprites (extracted by tools/sprite-extract) baked into the binary so the
+# UI can pull any icon by name. Served via a custom asset handler, see main.rs.
+include_dir = "0.7"
+# decode percent-encoded sprite paths (skill icons have non-ascii Japanese names)
+percent-encoding = "2"
+
 # Startup update check: query the GitHub releases API (ureq, blocking + rustls)
 # and open the release page in the system browser when a newer version exists.
 ureq = "2"

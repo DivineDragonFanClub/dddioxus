@@ -28,6 +28,8 @@ pub struct ItemCatalogEntry {
     pub iid: String,
     pub name: String,
     pub kind: i32,
+    // icon sprite name, served at /sprite/item/{icon}.png
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -48,6 +50,8 @@ pub struct SkillCatalogEntry {
     pub sid: String,
     pub name: String,
     pub inheritable: bool,
+    // icon sprite name (IconLabel), served at /sprite/skill/{icon}.png. may be empty
+    pub icon: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

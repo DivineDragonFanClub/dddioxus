@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, EditableNumber, EmptyState, ListRow, Select, SelectSize, SelectTone, StateKind, Tone};
+use super::{IconPicker, PickerOption, SpriteImg};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EditableNumber, EmptyState, ListRow, Select, SelectSize, StateKind, Tone};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     item_kind_label, AddItemRequest, EquipItemRequest, GetUnitItemsRequest, ItemCatalogEntry, RemoveItemRequest,
@@ -103,26 +104,36 @@ pub fn InventoryInspector(props: InventoryInspectorProps) -> Element {
                             }
                         },
                     }
-                    div { class: "flex items-center gap-1 mt-1",
-                        Select {
-                            size: SelectSize::Sm,
-                            on_change: move |v: String| {
-                                if let Ok(k) = v.parse::<i32>() { add_kind.set(k); }
-                            },
-                            for k in kinds_in_catalog(&catalog).into_iter() {
-                                option { value: "{k}", selected: k == add_kind(), "{item_kind_label(k)}" }
-                            }
-                        }
-                        Select {
-                            tone: SelectTone::Action,
-                            size: SelectSize::Sm,
-                            class: "flex-1",
-                            on_change: move |v: String| {
-                                if !v.is_empty() { add(v); }
-                            },
-                            option { value: "", selected: true, disabled: true, "+ Add item\u{2026}" }
-                            for c in catalog.iter().filter(|c| c.kind == add_kind()) {
-                                option { value: "{c.iid}", "{c.name}" }
+                    {
+                        // add_kind starts at 0 (not a real kind), so fall back to the first
+                        // available kind, which is what the native select shows by default.
+                        // keeps the visible kind and the picker's filter in sync.
+                        let kinds = kinds_in_catalog(&catalog);
+                        let effective_kind = if kinds.contains(&add_kind()) {
+                            add_kind()
+                        } else {
+                            kinds.first().copied().unwrap_or(0)
+                        };
+                        rsx! {
+                            div { class: "flex items-center gap-1 mt-1",
+                                Select {
+                                    size: SelectSize::Sm,
+                                    on_change: move |v: String| {
+                                        if let Ok(k) = v.parse::<i32>() { add_kind.set(k); }
+                                    },
+                                    for k in kinds.iter().copied() {
+                                        option { value: "{k}", selected: k == effective_kind, "{item_kind_label(k)}" }
+                                    }
+                                }
+                                IconPicker {
+                                    placeholder: "+ Add item\u{2026}".to_string(),
+                                    options: catalog.iter().filter(|c| c.kind == effective_kind).map(|c| PickerOption {
+                                        value: c.iid.clone(),
+                                        label: c.name.clone(),
+                                        icon: if c.icon.is_empty() { None } else { Some(format!("/sprite/item/{}.png", c.icon)) },
+                                    }).collect::<Vec<_>>(),
+                                    on_select: move |v: String| add(v),
+                                }
                             }
                         }
                     }
@@ -167,7 +178,9 @@ pub fn ItemRow(props: ItemRowProps) -> Element {
                     "\u{2605}"
                 }
             }
-            span { class: "text-gray-500 w-14 shrink-0 text-xs", "{item_kind_label(props.item.kind)}" }
+            if !props.item.icon.is_empty() {
+                SpriteImg { src: "/sprite/item/{props.item.icon}.png", class: "w-6 h-6 object-contain shrink-0" }
+            }
             span { class: "text-white flex-1 truncate text-xs", "{props.item.name}" }
             EditableNumber {
                 value: props.item.endurance as i64,

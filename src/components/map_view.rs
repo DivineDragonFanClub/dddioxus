@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
-use crate::components::forces::{force_dot, force_label, UnitInspector};
+use crate::components::forces::{force_dot, force_label, force_ring, icon_src, UnitInspector};
 use crate::components::globals_view::GlobalsView;
 use crate::components::resizable_panel::ResizablePanel;
 use crate::components::toast::use_toasts;
@@ -18,6 +18,22 @@ use crate::protocol::{
 };
 use crate::rpc;
 
+// what the floating hover card shows for a unit on the grid. we resolve the class
+// name up front so the card render stays cheap
+#[derive(Clone, PartialEq)]
+struct HoverInfo {
+    name: String,
+    force_id: i32,
+    class_name: String,
+    level: i32,
+    total_level: i32,
+    x: i32,
+    z: i32,
+    acted: bool,
+    icon: String,
+    icon_png: Option<String>,
+}
+
 #[component]
 pub fn MapView() -> Element {
     let conn = use_context::<Signal<ConnectionState>>();
@@ -31,6 +47,10 @@ pub fn MapView() -> Element {
     let mut turn = use_signal(|| None::<i32>);
     let mut forces = use_signal(Vec::<ForceInfo>::new);
     let mut selected = use_signal(|| None::<(i32, i32)>);
+    // hovered grid unit + cursor position (viewport px) for the floating tooltip
+    let mut hovered = use_signal(|| None::<(HoverInfo, f64, f64)>);
+    // grid cell size in px, adjustable so the chibi sprites are actually readable
+    let mut cell_px = use_signal(|| 44i32);
     let mut mounted = use_signal(|| false);
     // side panels start hidden so the map gets the full width, toggle them on from the header
     let mut show_rewind = use_signal(|| false);
@@ -137,8 +157,12 @@ pub fn MapView() -> Element {
     };
 
     let (width, height) = grid();
+    let csize = cell_px();
+    let dot = (csize as f32 * 0.55) as i32; // plain-dot fallback scales with the cell
     let units = placements();
     let unit_at = move |x: i32, z: i32| units.iter().find(|u| u.x == x && u.z == z).cloned();
+    // class jid -> readable name, for the cell hover tooltip
+    let classes = catalogs().classes;
     let selected_unit = selected().and_then(|(fid, idx)| {
         placements().into_iter().find(|u| u.force_id == fid && u.unit_index == idx)
     });
@@ -233,6 +257,21 @@ pub fn MapView() -> Element {
                                 on_commit: commit_turn,
                             }
                         }
+                        span { class: "text-gray-400 text-xs shrink-0 ml-1", "Zoom" }
+                        input {
+                            r#type: "range",
+                            min: "20",
+                            max: "72",
+                            step: "4",
+                            value: "{csize}",
+                            class: "w-20 accent-indigo-500 shrink-0",
+                            title: "Grid cell size",
+                            oninput: move |e| {
+                                if let Ok(v) = e.value().parse::<i32>() {
+                                    cell_px.set(v);
+                                }
+                            },
+                        }
                         Button {
                             tone: Tone::Emerald,
                             size: ButtonSize::Sm,
@@ -277,6 +316,8 @@ pub fn MapView() -> Element {
                                 // keep grid clicks (select / move-to) from bubbling to the
                                 // background deselect handler
                                 onclick: |e| e.stop_propagation(),
+                                // drop the tooltip once the cursor leaves the grid entirely
+                                onmouseleave: move |_| hovered.set(None),
                                 for z in (0..height).rev() {
                                     div { class: "flex gap-px",
                                         for x in 0..width {
@@ -284,9 +325,31 @@ pub fn MapView() -> Element {
                                                 let cell = unit_at(x, z);
                                                 let cell_unit = cell.as_ref().map(|u| (u.force_id, u.unit_index));
                                                 let is_sel = cell_unit == selected();
+                                                // resolve everything the tooltip needs once, up front
+                                                let hover = cell.as_ref().map(|u| {
+                                                    let class_name = classes
+                                                        .iter()
+                                                        .find(|c| c.jid == u.class_jid)
+                                                        .map(|c| c.name.clone())
+                                                        .filter(|n| !n.is_empty())
+                                                        .unwrap_or_else(|| u.class_jid.clone());
+                                                    HoverInfo {
+                                                        name: u.name.clone(),
+                                                        force_id: u.force_id,
+                                                        class_name,
+                                                        level: u.level,
+                                                        total_level: u.total_level,
+                                                        x: u.x,
+                                                        z: u.z,
+                                                        acted: u.acted,
+                                                        icon: u.icon.clone(),
+                                                        icon_png: u.icon_png.clone(),
+                                                    }
+                                                });
                                                 rsx! {
                                                     div {
-                                                        class: "w-5 h-5 bg-gray-800 flex items-center justify-center cursor-pointer hover:bg-gray-700",
+                                                        class: "bg-gray-800 flex items-center justify-center cursor-pointer hover:bg-gray-700",
+                                                        style: "width:{csize}px;height:{csize}px",
                                                         onclick: move |_| match cell_unit {
                                                             Some((fid, idx)) if selected() == Some((fid, idx)) => selected.set(None),
                                                             Some((fid, idx)) => selected.set(Some((fid, idx))),
@@ -296,15 +359,33 @@ pub fn MapView() -> Element {
                                                                 }
                                                             }
                                                         },
+                                                        onmouseenter: {
+                                                            let hover = hover.clone();
+                                                            move |e: MouseEvent| {
+                                                                let c = e.client_coordinates();
+                                                                hovered.set(hover.clone().map(|h| (h, c.x, c.y)));
+                                                            }
+                                                        },
                                                         if let Some(u) = cell {
                                                             {
-                                                                let ring = if is_sel { "ring-2 ring-white" } else { "" };
                                                                 let dim = if u.acted { "opacity-40" } else { "" };
-                                                                let color = force_dot(u.force_id);
+                                                                // selection wins, otherwise a thin force-colored ring
+                                                                let ring = if is_sel {
+                                                                    "ring-2 ring-white".to_string()
+                                                                } else {
+                                                                    format!("ring-1 {}", force_ring(u.force_id))
+                                                                };
                                                                 rsx! {
-                                                                    div {
-                                                                        class: "w-3.5 h-3.5 rounded-full {color} {ring} {dim}",
-                                                                        title: "{u.name} (Lv {u.level})",
+                                                                    if let Some(src) = icon_src(&u.icon, &u.icon_png) {
+                                                                        img {
+                                                                            class: "w-full h-full rounded-sm object-contain {ring} {dim}",
+                                                                            src: "{src}",
+                                                                        }
+                                                                    } else {
+                                                                        div {
+                                                                            class: "rounded-full {force_dot(u.force_id)} {ring} {dim}",
+                                                                            style: "width:{dot}px;height:{dot}px",
+                                                                        }
                                                                     }
                                                                 }
                                                             }
@@ -357,6 +438,11 @@ pub fn MapView() -> Element {
                                     total_level: u.total_level,
                                     class_jid: u.class_jid.clone(),
                                     acted: u.acted,
+                                    x: u.x,
+                                    z: u.z,
+                                    face: u.face.clone(),
+                                    icon: u.icon.clone(),
+                                    icon_png: u.icon_png.clone(),
                                 },
                                 classes: catalogs().classes,
                                 item_catalog: catalogs().items,
@@ -364,6 +450,51 @@ pub fn MapView() -> Element {
                                 on_class_change: on_class_change,
                                 on_move: on_move,
                                 on_acted: on_acted,
+                            }
+                        }
+                    }
+                }
+            }
+            // floating unit card, follows the hovered grid cell. fixed positioning so the
+            // grid's scroll box can't clip it, pointer-events-none so it never eats clicks
+            if let Some((h, px, py)) = hovered() {
+                {
+                    let left = px + 16.0;
+                    let top = py + 16.0;
+                    rsx! {
+                        div {
+                            class: "fixed z-50 pointer-events-none select-none min-w-40 rounded-lg border border-gray-600/60 bg-gray-900/95 backdrop-blur-sm shadow-xl shadow-black/50 px-3 py-2",
+                            style: "left: {left}px; top: {top}px;",
+                            div { class: "flex items-center gap-2 mb-1.5",
+                                if let Some(src) = icon_src(&h.icon, &h.icon_png) {
+                                    img { class: "w-12 h-12 object-contain shrink-0", src: "{src}" }
+                                } else {
+                                    span { class: "w-2.5 h-2.5 rounded-full shrink-0 {force_dot(h.force_id)}" }
+                                }
+                                span { class: "text-white font-semibold text-sm truncate", "{h.name}" }
+                            }
+                            div { class: "space-y-0.5 text-xs",
+                                div { class: "flex justify-between gap-4",
+                                    span { class: "text-gray-500", "Force" }
+                                    span { class: "text-gray-200", "{force_label(h.force_id)}" }
+                                }
+                                div { class: "flex justify-between gap-4",
+                                    span { class: "text-gray-500", "Class" }
+                                    span { class: "text-gray-200 truncate", "{h.class_name}" }
+                                }
+                                div { class: "flex justify-between gap-4",
+                                    span { class: "text-gray-500", "Level" }
+                                    span { class: "text-gray-200", "{h.level} (total {h.total_level})" }
+                                }
+                                div { class: "flex justify-between gap-4",
+                                    span { class: "text-gray-500", "Tile" }
+                                    span { class: "text-gray-200 font-mono", "{h.x}, {h.z}" }
+                                }
+                            }
+                            if h.acted {
+                                div { class: "mt-1.5 inline-flex items-center rounded bg-amber-500/15 text-amber-300 text-xs font-medium px-1.5 py-0.5",
+                                    "Acted this turn"
+                                }
                             }
                         }
                     }

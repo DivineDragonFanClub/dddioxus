@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use super::icon_src;
 use super::bond_inspector::BondInspector;
 use super::inventory_inspector::InventoryInspector;
 use super::skill_inspector::SkillInspector;
@@ -79,58 +80,71 @@ pub fn UnitInspector(props: UnitInspectorProps) -> Element {
     };
 
     rsx! {
-        div { class: "border-b border-gray-700/70 px-4 py-3 min-w-0",
-            // title row: name on the left, the turn-used toggle on the right
-            div { class: "flex items-center justify-between gap-2 mb-2",
-                span { class: "text-white font-semibold text-sm truncate", "{props.unit.name}" }
-                if show_acted {
-                    Checkbox {
-                        checked: acted,
-                        label: "Acted",
-                        title: "Whether the unit has used up its turn",
-                        on_toggle: move |v| {
-                            on_acted.call(SetActedRequest { force_id, unit_index, acted: v });
-                        },
+        // isolate so the face's negative z-index stays behind this card's content only
+        div { class: "relative isolate overflow-hidden border-b border-gray-700/70 px-4 py-3 min-w-0",
+            // face thumbnail tucked behind the name in the top-left corner, faded out
+            // toward the bottom-right so the fields below stay readable
+            if !props.unit.face.is_empty() {
+                img {
+                    class: "absolute -top-1 -left-2 h-20 w-auto object-contain opacity-25 pointer-events-none select-none",
+                    style: "z-index: -1; mask-image: linear-gradient(to bottom right, rgba(0,0,0,0.95), transparent 70%); -webkit-mask-image: linear-gradient(to bottom right, rgba(0,0,0,0.95), transparent 70%);",
+                    src: "/sprite/face/{props.unit.face}.png",
+                }
+            }
+            // header: chibi on the left, then name (top) and the class + level line
+            div { class: "flex items-center gap-3 mb-2",
+                if let Some(src) = icon_src(&props.unit.icon, &props.unit.icon_png) {
+                    img { class: "w-16 h-16 object-contain shrink-0", src: "{src}" }
+                }
+                div { class: "flex-1 min-w-0",
+                    // name on top, turn-used toggle on the right
+                    div { class: "flex items-center justify-between gap-2 mb-1",
+                        span { class: "text-white font-semibold text-base truncate", "{props.unit.name}" }
+                        if show_acted {
+                            Checkbox {
+                                checked: acted,
+                                label: "Acted",
+                                title: "Whether the unit has used up its turn",
+                                on_toggle: move |v| {
+                                    on_acted.call(SetActedRequest { force_id, unit_index, acted: v });
+                                },
+                            }
+                        }
+                    }
+                    // class dropdown then the level / internal level readout
+                    div { class: "flex items-center gap-2",
+                        Select {
+                            size: SelectSize::Sm,
+                            class: "flex-1 min-w-0",
+                            on_change: move |v: String| {
+                                on_class_change.call(SetClassRequest { force_id, unit_index, jid: v });
+                            },
+                            for c in props.classes.iter() {
+                                option { value: "{c.jid}", selected: c.jid == props.unit.class_jid, "{c.name}" }
+                            }
+                        }
+                        div { class: "flex items-center gap-1.5 shrink-0",
+                            span { class: "text-gray-200 text-xs font-bold", "Lvl" }
+                            EditableNumber { value: level() as i64, width: "w-10", on_commit: commit_level }
+                            span { class: "text-gray-500 text-xs", "/" }
+                            EditableNumber { value: internal() as i64, width: "w-10", on_commit: commit_internal }
+                            Checkbox {
+                                checked: grow(),
+                                label: "grow",
+                                title: "Regrow the stat block to match the new level when editing Lv / iLv",
+                                on_toggle: move |v| grow.set(v),
+                            }
+                        }
                     }
                 }
             }
             // stacked labeled fields so the dropdowns never collide when the panel is narrow
             div { class: "space-y-1.5 mb-2",
-                Field { label: "Level", label_width: "w-16",
-                    EditableNumber {
-                        value: level() as i64,
-                        width: "w-14",
-                        on_commit: commit_level,
-                    }
-                    Checkbox {
-                        checked: grow(),
-                        label: "grow",
-                        title: "Regrow the stat block to match the new level when editing Lv / iLv",
-                        on_toggle: move |v| grow.set(v),
-                    }
-                }
-                Field { label: "Internal", label_width: "w-16",
-                    EditableNumber {
-                        value: internal() as i64,
-                        width: "w-14",
-                        on_commit: commit_internal,
-                    }
+                Field { label: "Position", label_width: "w-16",
                     span {
-                        class: "text-gray-500 text-xs",
-                        title: "Total level (level + internal level), the grow target when 'grow' is on",
-                        "total {total}"
-                    }
-                }
-                Field { label: "Class", label_width: "w-16",
-                    Select {
-                        size: SelectSize::Sm,
-                        class: "w-full",
-                        on_change: move |v: String| {
-                            on_class_change.call(SetClassRequest { force_id, unit_index, jid: v });
-                        },
-                        for c in props.classes.iter() {
-                            option { value: "{c.jid}", selected: c.jid == props.unit.class_jid, "{c.name}" }
-                        }
+                        class: "text-gray-300 text-xs font-mono",
+                        title: "Current tile on the map grid (column, row)",
+                        "{props.unit.x}, {props.unit.z}"
                     }
                 }
                 Field { label: "Move to", label_width: "w-16",

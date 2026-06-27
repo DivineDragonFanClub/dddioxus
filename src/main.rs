@@ -2,11 +2,15 @@
 
 extern crate core;
 
+use std::borrow::Cow;
+
 use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
 use dioxus::desktop::tao::dpi::LogicalSize;
-use dioxus::desktop::{Config, WindowBuilder};
+use dioxus::desktop::wry::http::Response;
+use dioxus::desktop::{use_asset_handler, Config, WindowBuilder};
 use dioxus::prelude::*;
 use dioxus_logger::tracing::Level;
+use include_dir::{include_dir, Dir};
 
 use components::bonds_view::BondsView;
 use components::catalog_provider::CatalogProvider;
@@ -40,6 +44,19 @@ mod protocol;
 mod rpc;
 
 const TAILWIND: Asset = asset!("/assets/tailwind.css");
+
+// Game icons extracted from the FE Engage bundles, baked straight into the binary.
+// Reached at runtime via the "sprite" asset handler below, e.g.
+// <img src="/sprite/unit/100Alfred_632General.png">
+static SPRITES: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets/sprites");
+
+// map a "/sprite/<category>/<name>.png" request path to the embedded file bytes
+fn sprite_bytes(uri_path: &str) -> Option<&'static [u8]> {
+    let rel = uri_path.trim_start_matches('/').strip_prefix("sprite/")?;
+    // skill icons have non-ascii (Japanese) names, so the webview percent-encodes them
+    let rel = percent_encoding::percent_decode_str(rel).decode_utf8().ok()?;
+    SPRITES.get_file(rel.as_ref()).map(|f| f.contents())
+}
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
@@ -138,6 +155,17 @@ fn main() {
 #[component]
 fn App() -> Element {
     use_connection();
+    // serve baked-in game icons at /sprite/<category>/<name>.png
+    use_asset_handler("sprite", |request, responder| {
+        let response = match sprite_bytes(request.uri().path()) {
+            Some(bytes) => Response::builder()
+                .header("Content-Type", "image/png")
+                .body(Cow::Borrowed(bytes))
+                .unwrap(),
+            None => Response::builder().status(404).body(Cow::Owned(Vec::new())).unwrap(),
+        };
+        responder.respond(response);
+    });
     // Debug/dev-only: start the dioxus-inspector HTTP bridge so Claude
     // Code (and other MCP-aware tooling) can read the DOM, run JS, etc.
     use_inspector_bridge();
@@ -179,6 +207,30 @@ fn use_inspector_bridge() {
 
 #[cfg(not(any(debug_assertions, feature = "dev")))]
 fn use_inspector_bridge() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serves_an_embedded_chibi() {
+        // a known staged icon resolves through the same path the handler uses
+        let bytes = sprite_bytes("/sprite/unit/100AlfredE_001Lueur.png").expect("chibi should be embedded");
+        assert_eq!(&bytes[..4], b"\x89PNG", "should be a PNG");
+        // misses and wrong handler prefix don't resolve
+        assert!(sprite_bytes("/sprite/unit/does_not_exist.png").is_none());
+        assert!(sprite_bytes("/other/unit/x.png").is_none());
+    }
+
+    #[test]
+    fn serves_percent_encoded_japanese_skill_icon() {
+        // skill icons have Japanese names; the webview sends them percent-encoded
+        use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+        let enc = utf8_percent_encode("すり抜け", NON_ALPHANUMERIC).to_string();
+        let bytes = sprite_bytes(&format!("/sprite/skill/{enc}.png")).expect("skill icon should resolve after decode");
+        assert_eq!(&bytes[..4], b"\x89PNG");
+    }
+}
 
 #[component]
 fn Scene() -> Element {

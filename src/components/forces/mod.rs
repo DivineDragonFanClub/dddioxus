@@ -5,6 +5,8 @@ mod stat_field;
 mod stat_inspector;
 mod unit_inspector;
 
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::components::catalog_provider::Catalogs;
@@ -22,6 +24,165 @@ pub use unit_inspector::UnitInspector;
 
 // faction colors, matching the unit dots on the Map grid so a force reads the same in both places.
 // player blue, enemy red, ally green, anything else gray
+#[derive(Clone, PartialEq)]
+pub struct PickerOption {
+    pub value: String,
+    pub label: String,
+    pub icon: Option<String>, // full sprite src, or None for no icon
+}
+
+// where the popup floats relative to the trigger. `edge` is a top offset when !up,
+// or a bottom offset (distance from viewport bottom) when up
+#[derive(Clone, Copy, PartialEq, Default)]
+struct PopupPos {
+    left: f64,
+    width: f64,
+    edge: f64,
+    max_h: f64,
+    up: bool,
+}
+
+// a dropdown that shows an icon next to each option (native <select> can't). the list
+// is position:fixed anchored to the button, flips up when there's more room above, and
+// caps its height to the space available, so a small window can't trap it off-screen
+#[component]
+pub fn IconPicker(placeholder: String, options: Vec<PickerOption>, on_select: EventHandler<String>) -> Element {
+    let mut open = use_signal(|| false);
+    let mut pos = use_signal(PopupPos::default);
+    let mut trigger = use_signal(|| None::<Rc<MountedData>>);
+    let mut query = use_signal(String::new);
+
+    rsx! {
+        div { class: "flex-1 min-w-0",
+            button {
+                class: "w-full flex items-center justify-between gap-1 px-2 py-1 text-xs rounded bg-indigo-600 hover:bg-indigo-500 text-white",
+                onmounted: move |e: Event<MountedData>| trigger.set(Some(e.data())),
+                onclick: move |_| {
+                    if open() {
+                        open.set(false);
+                        return;
+                    }
+                    let Some(elem) = trigger() else { return };
+                    spawn(async move {
+                        let Ok(rect) = elem.get_client_rect().await else { return };
+                        let mut eval = document::eval("dioxus.send([window.innerWidth, window.innerHeight])");
+                        let (vw, vh) = eval.recv::<(f64, f64)>().await.unwrap_or((f64::MAX, f64::MAX));
+                        const GAP: f64 = 4.0;
+                        let btn_top = rect.origin.y;
+                        let btn_bottom = rect.origin.y + rect.size.height;
+                        let below = vh - btn_bottom - GAP;
+                        let above = btn_top - GAP;
+                        // open upward only when below is cramped and above has more room
+                        let up = below < 180.0 && above > below;
+                        let (edge, max_h) = if up {
+                            (vh - btn_top + GAP, above.clamp(80.0, 320.0))
+                        } else {
+                            (btn_bottom + GAP, below.clamp(80.0, 320.0))
+                        };
+                        let width = rect.size.width.max(180.0);
+                        let left = (rect.origin.x).min((vw - width - 4.0).max(4.0));
+                        pos.set(PopupPos { left, width, edge, max_h, up });
+                        query.set(String::new()); // start each open with an empty filter
+                        open.set(true);
+                    });
+                },
+                span { class: "truncate", "{placeholder}" }
+                span { class: "text-indigo-200 shrink-0", "\u{25be}" }
+            }
+            if open() {
+                div { class: "fixed inset-0 z-40", onclick: move |_| open.set(false) }
+                {
+                    let p = pos();
+                    let edge = if p.up { format!("bottom:{}px", p.edge) } else { format!("top:{}px", p.edge) };
+                    let q = query().to_lowercase();
+                    let filtered: Vec<PickerOption> =
+                        options.iter().filter(|o| q.is_empty() || o.label.to_lowercase().contains(&q)).cloned().collect();
+                    // Enter on the filter box picks the first match
+                    let first_val = filtered.first().map(|o| o.value.clone());
+                    rsx! {
+                        div {
+                            class: "fixed z-50 flex flex-col overflow-hidden rounded border border-gray-700 bg-gray-800 shadow-xl shadow-black/40",
+                            style: "left:{p.left}px; width:{p.width}px; max-height:{p.max_h}px; {edge}",
+                            div { class: "p-1 border-b border-gray-700 shrink-0",
+                                input {
+                                    class: "w-full px-2 py-1 text-xs rounded bg-gray-900 text-white placeholder-gray-500 outline-none",
+                                    placeholder: "Filter\u{2026}",
+                                    value: "{query}",
+                                    oninput: move |e| query.set(e.value()),
+                                    onmounted: move |e: Event<MountedData>| {
+                                        spawn(async move {
+                                            let _ = e.data().set_focus(true).await;
+                                        });
+                                    },
+                                    onkeydown: move |e: Event<KeyboardData>| match e.key() {
+                                        Key::Enter => {
+                                            if let Some(v) = first_val.clone() {
+                                                on_select.call(v);
+                                                open.set(false);
+                                            }
+                                        }
+                                        Key::Escape => open.set(false),
+                                        _ => {}
+                                    },
+                                }
+                            }
+                            div { class: "flex-1 min-h-0 overflow-auto",
+                                if filtered.is_empty() {
+                                    div { class: "px-2 py-1.5 text-gray-500 text-xs", "No matches" }
+                                }
+                                for opt in filtered.iter() {
+                                    button {
+                                        key: "{opt.value}",
+                                        class: "flex items-center gap-2 w-full px-2 py-1 text-left hover:bg-gray-700",
+                                        onclick: {
+                                            let v = opt.value.clone();
+                                            move |_| {
+                                                on_select.call(v.clone());
+                                                open.set(false);
+                                            }
+                                        },
+                                        if let Some(src) = opt.icon.clone() {
+                                            SpriteImg { src, class: "w-5 h-5 object-contain shrink-0" }
+                                        } else {
+                                            span { class: "w-5 h-5 shrink-0" }
+                                        }
+                                        span { class: "truncate text-white text-xs", "{opt.label}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// a sprite image that quietly disappears if its file 404s, instead of leaving a
+// broken-image glyph in the row. used for item/skill icons that may not all exist
+#[component]
+pub fn SpriteImg(src: String, class: String) -> Element {
+    let mut failed = use_signal(|| false);
+    if failed() {
+        return rsx! {};
+    }
+    rsx! {
+        img { class: "{class}", src: "{src}", onerror: move |_| failed.set(true) }
+    }
+}
+
+// where to load a unit's chibi from: a mod-provided png wins (sent inline as base64),
+// then the baked base-game sprite, otherwise None and the caller shows a fallback
+pub fn icon_src(icon: &str, icon_png: &Option<String>) -> Option<String> {
+    if let Some(png) = icon_png {
+        Some(format!("data:image/png;base64,{png}"))
+    } else if !icon.is_empty() {
+        Some(format!("/sprite/unit/{icon}.png"))
+    } else {
+        None
+    }
+}
+
 pub fn force_dot(id: i32) -> &'static str {
     match id {
         0 => "bg-blue-500",
@@ -29,6 +190,17 @@ pub fn force_dot(id: i32) -> &'static str {
         2 => "bg-green-500",
         3 => "bg-purple-500",
         _ => "bg-gray-500",
+    }
+}
+
+// ring color for the chibi on the map, so affiliation stays readable
+pub fn force_ring(id: i32) -> &'static str {
+    match id {
+        0 => "ring-blue-400",
+        1 => "ring-red-400",
+        2 => "ring-green-400",
+        3 => "ring-purple-400",
+        _ => "ring-gray-400",
     }
 }
 

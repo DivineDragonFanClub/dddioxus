@@ -43,6 +43,12 @@ pub struct MapUnit {
     pub total_level: i32,
     pub class_jid: String,
     pub acted: bool,
+    // chibi sprite name "{person}_{job}", empty if unknown. served at /sprite/unit/{icon}.png
+    pub icon: String,
+    // base64 PNG when a mod overrides this unit's icon; preferred over the baked `icon`
+    pub icon_png: Option<String>,
+    // face thumbnail sprite name, served at /sprite/face/{face}.png
+    pub face: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

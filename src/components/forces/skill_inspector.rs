@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
 
+use super::{IconPicker, PickerOption, SpriteImg};
 use crate::components::catalog_provider::Catalogs;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, ListRow, Select, SelectSize, SelectTone, StateKind, Tone};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, ListRow, Select, SelectSize, StateKind, Tone};
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
     AddSkillRequest, GetPersonSkillsRequest, GetUnitSkillsRequest, RemoveSkillRequest, SkillInfo,
@@ -86,6 +87,9 @@ pub fn SkillInspector(props: SkillInspectorProps) -> Element {
                             for sk in list.into_iter() {
                                 ListRow {
                                     key: "{sk.source}-{sk.sid}",
+                                    if !sk.icon.is_empty() {
+                                        SpriteImg { src: "/sprite/skill/{sk.icon}.png", class: "w-6 h-6 object-contain shrink-0" }
+                                    }
                                     span { class: "text-gray-500 w-16 shrink-0 text-xs", "{sk.source}" }
                                     span { class: "text-white flex-1 truncate text-xs", title: "{sk.sid}", "{sk.name}" }
                                     if sk.removable {
@@ -106,28 +110,39 @@ pub fn SkillInspector(props: SkillInspectorProps) -> Element {
                             }
                         },
                     }
-                    div { class: "flex items-center gap-1 mt-1",
-                        Select {
-                            size: SelectSize::Sm,
-                            on_change: move |v| target.set(v),
-                            for t in ["Equip", "Private", "Job"] {
-                                option { value: "{t}", selected: t == target(), "{t}" }
-                            }
-                        }
-                        Select {
-                            tone: SelectTone::Action,
-                            size: SelectSize::Sm,
-                            class: "flex-1",
-                            on_change: move |v: String| {
-                                if !v.is_empty() { assign(v); }
-                            },
-                            option { value: "", selected: true, disabled: true, "+ Assign skill\u{2026}" }
-                            for c in catalogs().skills.iter().filter(|c| match target().as_str() {
-                                "Private" => !c.inheritable,
-                                "Equip" => c.inheritable,
-                                _ => true,
-                            }) {
-                                option { value: "{c.sid}", "{c.name}" }
+                    {
+                        // a skill only becomes a *visible* equipped skill if it's inheritable
+                        // and a slot is free (the game caps equipped skills at 2; extras just
+                        // go to the hidden pool). so for Equip we offer only what'll actually show.
+                        let loaded = skills().unwrap_or_default();
+                        let equipped: Vec<String> = loaded.iter().filter(|s| s.source == "Equip").map(|s| s.sid.clone()).collect();
+                        let equip_full = target() == "Equip" && equipped.len() >= 2;
+                        rsx! {
+                            div { class: "flex items-center gap-1 mt-1",
+                                Select {
+                                    size: SelectSize::Sm,
+                                    on_change: move |v| target.set(v),
+                                    for t in ["Equip", "Private", "Job"] {
+                                        option { value: "{t}", selected: t == target(), "{t}" }
+                                    }
+                                }
+                                if equip_full {
+                                    span { class: "flex-1 text-gray-500 text-xs px-1", "Equip slots full (2/2) \u{2014} remove one to add" }
+                                } else {
+                                    IconPicker {
+                                        placeholder: "+ Assign skill\u{2026}".to_string(),
+                                        options: catalogs().skills.iter().filter(|c| match target().as_str() {
+                                            "Private" => !c.inheritable,
+                                            "Equip" => c.inheritable && !equipped.iter().any(|e| e == &c.sid),
+                                            _ => true,
+                                        }).map(|c| PickerOption {
+                                            value: c.sid.clone(),
+                                            label: c.name.clone(),
+                                            icon: if c.icon.is_empty() { None } else { Some(format!("/sprite/skill/{}.png", c.icon)) },
+                                        }).collect::<Vec<_>>(),
+                                        on_select: move |v: String| assign(v),
+                                    }
+                                }
                             }
                         }
                     }
