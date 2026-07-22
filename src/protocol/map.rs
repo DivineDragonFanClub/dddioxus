@@ -157,3 +157,28 @@ impl Command for RewindCancelRequest {
     const ID: CommandId = CommandId::new(MAP_NS, 10);
     type Response = OkResponse;
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FogOfWarResponse {
+    // false when there's no sight system right now (not in a battle), so the UI hides the toggle
+    pub available: bool,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FogOfWarRequest;
+
+impl Command for FogOfWarRequest {
+    const ID: CommandId = CommandId::new(MAP_NS, 11);
+    type Response = FogOfWarResponse;
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetFogOfWarRequest {
+    pub enabled: bool,
+}
+
+impl Command for SetFogOfWarRequest {
+    const ID: CommandId = CommandId::new(MAP_NS, 12);
+    type Response = FogOfWarResponse;
+}

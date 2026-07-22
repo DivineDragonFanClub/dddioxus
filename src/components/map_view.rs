@@ -11,10 +11,10 @@ use crate::components::ui::{
 };
 use crate::hooks::connection::ConnectionState;
 use crate::protocol::{
-    CompleteMapRequest, ForceInfo, GetForcesRequest, MapGridRequest, MapPlacementsRequest, MapStatusRequest,
-    MapTurnRequest, MapUnit, MoveUnitRequest, RewindCancelRequest, RewindCommitRequest, RewindEntriesRequest,
-    RewindEntry, RewindPreviewRequest, SetActedRequest, SetClassRequest, SetMapTurnRequest, SetUnitPosRequest,
-    UnitSummary,
+    CompleteMapRequest, FogOfWarRequest, ForceInfo, GetForcesRequest, MapGridRequest, MapPlacementsRequest,
+    MapStatusRequest, MapTurnRequest, MapUnit, MoveUnitRequest, RewindCancelRequest, RewindCommitRequest,
+    RewindEntriesRequest, RewindEntry, RewindPreviewRequest, SetActedRequest, SetClassRequest, SetFogOfWarRequest,
+    SetMapTurnRequest, SetUnitPosRequest, UnitSummary,
 };
 use crate::rpc;
 
@@ -45,6 +45,8 @@ pub fn MapView() -> Element {
     let mut rewind = use_signal(Vec::<RewindEntry>::new);
     let mut previewing = use_signal(|| None::<i32>);
     let mut turn = use_signal(|| None::<i32>);
+    // fog of war state: None = no sight system on this map (hide the toggle), Some(on/off)
+    let mut fog = use_signal(|| None::<bool>);
     let mut forces = use_signal(Vec::<ForceInfo>::new);
     let mut selected = use_signal(|| None::<(i32, i32)>);
     // hovered grid unit + cursor position (viewport px) for the floating tooltip
@@ -72,6 +74,9 @@ pub fn MapView() -> Element {
                     }
                     if let Ok(r) = rpc::call(&conn, RewindEntriesRequest).await {
                         rewind.set(r.entries);
+                    }
+                    if let Ok(f) = rpc::call(&conn, FogOfWarRequest).await {
+                        fog.set(f.available.then_some(f.enabled));
                     }
                 }
             }
@@ -140,6 +145,16 @@ pub fn MapView() -> Element {
         spawn(async move {
             if let Ok(resp) = rpc::call(&conn, SetMapTurnRequest { turn: v as i32 }).await {
                 turn.set(Some(resp.turn));
+            }
+        });
+    };
+
+    let toggle_fog = move |_| {
+        let Some(current) = fog() else { return };
+        spawn(async move {
+            match rpc::call(&conn, SetFogOfWarRequest { enabled: !current }).await {
+                Ok(resp) => fog.set(Some(resp.enabled)),
+                Err(e) => toasts.show(format!("Fog of war toggle failed: {e}")),
             }
         });
     };
@@ -248,6 +263,17 @@ pub fn MapView() -> Element {
                             title: "Toggle the local variables panel",
                             onclick: move |_| show_vars.set(!show_vars()),
                             "Variables"
+                        }
+                        // fog of war toggle, only shown on maps that actually have a sight system
+                        if let Some(on) = fog() {
+                            Button {
+                                tone: if on { Tone::Indigo } else { Tone::Gray },
+                                variant: if on { ButtonVariant::Solid } else { ButtonVariant::Outline },
+                                size: ButtonSize::Sm,
+                                title: "Enable or disable fog of war for this battle",
+                                onclick: toggle_fog,
+                                if on { "Fog: on" } else { "Fog: off" }
+                            }
                         }
                         if let Some(t) = turn() {
                             span { class: "text-gray-400 text-xs shrink-0 ml-1", "Turn" }

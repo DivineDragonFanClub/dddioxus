@@ -109,7 +109,7 @@ jobs:
           dx bundle --release --platform desktop --package-types macos \
             --target x86_64-apple-darwin --out-dir out-x64
 
-      - name: Merge into a universal .app and zip it
+      - name: Merge into a universal .app
         run: |
           set -euo pipefail
           app_name=$(basename "$(ls -d out-arm/*.app | head -1)")
@@ -119,11 +119,58 @@ jobs:
             "out-x64/$app_name/Contents/MacOS/$bin" \
             -output "out-arm/$app_name/Contents/MacOS/$bin"
           lipo -info "out-arm/$app_name/Contents/MacOS/$bin"
+          echo "APP_NAME=$app_name" >> "$GITHUB_ENV"
 
+      # Signs + notarizes so the app opens with no Gatekeeper warning. Skipped (leaving an
+      # unsigned zip) if the signing secrets aren't set. See docs/macos-signing.md.
+      - name: Check for signing secrets
+        run: |
+          if [ -n "${{ secrets.MACOS_CERT_P12 }}" ]; then
+            echo "HAS_SIGNING=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::MACOS_CERT_P12 not set, the macOS app will be unsigned/unnotarized"
+            echo "HAS_SIGNING=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Sign, notarize and staple
+        if: env.HAS_SIGNING == 'true'
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          app="out-arm/$APP_NAME"
+
+          # import the Developer ID cert into a throwaway keychain
+          echo "$CERT_P12" | base64 --decode > cert.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import cert.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | xargs)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null
+
+          # sign with the hardened runtime + a secure timestamp (both required to notarize)
+          codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+          # notarize (blocks until Apple finishes) then staple the ticket onto the app
+          ditto -c -k --keepParent "$app" notarize.zip
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+
+      - name: Zip the app
+        run: |
           mkdir -p out
-          # ditto is the macOS-correct way to zip a .app (keeps symlinks and
-          # bundle structure intact)
-          ( cd out-arm && ditto -c -k --sequesterRsrc --keepParent "$app_name" "../out/${app_name%.app}-macos-universal.zip" )
+          # ditto is the macOS-correct way to zip a .app (keeps symlinks and bundle intact)
+          ( cd out-arm && ditto -c -k --sequesterRsrc --keepParent "$APP_NAME" "../out/${APP_NAME%.app}-macos-universal.zip" )
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
